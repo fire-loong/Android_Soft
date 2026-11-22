@@ -58,6 +58,12 @@ class ScreenCaptureService : Service() {
     /** 资源句柄的整体摘除锁：采集回调线程与主线程可能并发进入，摘除与释放必须原子分界。 */
     private val resourceLock = Any()
 
+    /**
+     * 会话纪元：每次 onStartCommand 建立新会话时递增。
+     * 旧渲染循环只能停掉与自身纪元一致的会话，避免“旧会话看到 STOPPED 就把刚启动的新会话 stopSelf 掉”。
+     */
+    private var sessionEpoch = 0
+
     private class SessionResources(
         val display: VirtualDisplay?,
         val reader: ImageReader?,
@@ -105,6 +111,7 @@ class ScreenCaptureService : Service() {
         }
         // 只在本会话资源整体摘除后挂载，避免旧会话遗留的 teardown 去 hide 新悬浮层。
         releaseResources(detachResources())
+        val epoch = synchronized(resourceLock) { sessionEpoch += 1; sessionEpoch }
         synchronized(resourceLock) { overlay = newOverlay }
         scope.launch {
             GuidanceRuntime.manager(this@ScreenCaptureService).start()
@@ -112,9 +119,12 @@ class ScreenCaptureService : Service() {
             GuidanceRuntime.render(this@ScreenCaptureService)
         }
         beginCapture(resultCode, data)
-        startRenderLoop()
+        startRenderLoop(epoch)
         return START_NOT_STICKY
     }
+
+    private fun isCurrentEpoch(epoch: Int): Boolean =
+        synchronized(resourceLock) { sessionEpoch == epoch }
 
     private fun isCurrentProjection(projection: MediaProjection): Boolean =
         synchronized(resourceLock) { mediaProjection === projection }
@@ -148,6 +158,18 @@ class ScreenCaptureService : Service() {
                 r.acquireLatestImage()?.close()
                 return@setOnImageAvailableListener
             }
+            // 锁屏必须优先于“暂停丢帧”判定：否则 PAUSED 期间锁屏不会停掉 MediaProjection（8.3/8.10）。
+            val kg = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            if (runCatching { kg.isKeyguardLocked }.getOrDefault(false)) {
+                r.acquireLatestImage()?.close()
+                stopCapture("lockscreen")
+                return@setOnImageAvailableListener
+            }
+            // 暂停/停止后不再处理任何帧（8.5 暂停媒体），只保留服务与悬浮层供用户恢复/停止。
+            if (!GuidanceRuntime.manager(this@ScreenCaptureService).isCollecting()) {
+                r.acquireLatestImage()?.close()
+                return@setOnImageAvailableListener
+            }
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastProcessMs < 400) { r.acquireLatestImage()?.close(); return@setOnImageAvailableListener }
             lastProcessMs = now
@@ -155,15 +177,13 @@ class ScreenCaptureService : Service() {
             if (image != null) {
                 // 关键：只在内存处理，立即关闭，绝不写文件/不落盘。
                 runCatching {
-                    val kg = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
-                    if (kg.isKeyguardLocked) {
-                        image.close()
-                        stopCapture("lockscreen")
-                        return@setOnImageAvailableListener
-                    }
-                    // FLAG_SECURE 窗口在 MediaProjection 截屏中会被系统涂黑（8.5/8.10），据此清除高亮。
+                    // FLAG_SECURE 窗口在 MediaProjection 截屏中会被系统涂黑（8.5/8.10），据此清除高亮并暂停。
                     if (isMostlyBlack(image)) {
-                        GuidanceRuntime.manager(this@ScreenCaptureService).markCaptureSecure()
+                        val mgr = GuidanceRuntime.manager(this@ScreenCaptureService)
+                        scope.launch {
+                            mgr.onCaptureSecure()
+                            GuidanceRuntime.render(this@ScreenCaptureService)
+                        }
                     }
                 }
                 image.close()
@@ -193,11 +213,31 @@ class ScreenCaptureService : Service() {
         if (!accepted) runCatching { display.release() }
     }
 
-    private fun startRenderLoop() {
+    private fun startRenderLoop(epoch: Int) {
         renderJob?.cancel()
         renderJob = scope.launch {
+            var lastDisplayKey: String? = null
             while (isActive) {
+                // 新会话已建立：本循环属于旧会话，直接退出，绝不能清理新会话资源或 stopSelf。
+                if (!isCurrentEpoch(epoch)) return@launch
+                val dm = resources.displayMetrics
+                val orientation = resources.configuration.orientation
+                val key = "${dm.widthPixels}x${dm.heightPixels}@$orientation"
+                if (lastDisplayKey != null && lastDisplayKey != key) {
+                    // 旋转/分屏/分辨率变化：旧归一化坐标立即作废并暂停（8.4/8.5）。
+                    GuidanceRuntime.manager(this@ScreenCaptureService).onDisplayChanged()
+                }
+                lastDisplayKey = key
                 GuidanceRuntime.render(this@ScreenCaptureService)
+                // 远程停止/会话结束后，服务必须真正释放采集与悬浮层（8.7），不能只改状态。
+                if (GuidanceRuntime.manager(this@ScreenCaptureService).snapshot().state == GuidanceSessionState.STOPPED &&
+                    isCurrentEpoch(epoch)
+                ) {
+                    teardown()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return@launch
+                }
                 delay(400)
             }
         }
@@ -250,7 +290,14 @@ class ScreenCaptureService : Service() {
         runCatching { resources.display?.release() }
         runCatching { resources.reader?.close() }
         runCatching { resources.projection?.stop() }
-        runCatching { resources.overlay?.hide() }
+        // WindowManager.removeView 必须在主线程；采集回调线程触发停止时切回主线程，避免悬浮层泄漏。
+        resources.overlay?.let { ov ->
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                runCatching { ov.hide() }
+            } else {
+                scope.launch { runCatching { ov.hide() } }
+            }
+        }
     }
 
     /** 释放采集与悬浮层资源（不触发状态机/通知）。供正常停止与 onDestroy 兜底复用，避免异常回收泄漏。 */
@@ -260,14 +307,21 @@ class ScreenCaptureService : Service() {
         releaseResources(detachResources())
     }
 
+    /**
+     * 统一停止入口：无论来自主线程、采集回调线程还是通知动作，都在主线程完成
+     * 资源释放、状态收敛、悬浮层移除与前台服务退出，避免跨线程操作 WindowManager。
+     */
     private fun stopCapture(reason: String) {
-        teardown()
+        val epoch = synchronized(resourceLock) { sessionEpoch }
         scope.launch {
+            // 迟到停止不得误杀之后启动的新会话（旧锁屏/撤权回调可能晚于新会话到达）。
+            if (!isCurrentEpoch(epoch)) return@launch
+            teardown()
             GuidanceRuntime.manager(this@ScreenCaptureService).stop(reason)
             GuidanceRuntime.render(this@ScreenCaptureService)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     override fun onDestroy() {

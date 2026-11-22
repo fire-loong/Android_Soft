@@ -40,20 +40,41 @@ class GuidanceAccessibilityService : AccessibilityService() {
         if (nowMono - lastPushMs < 350) return
         val root = rootInActiveWindow ?: return
         val blocks = ArrayList<GuidanceFrame.TextBlock>(64)
-        collectNodes(root, blocks, 64, 0)
+        collectNodes(root, blocks, 64, 0, parentText = null)
         val dm = resources.displayMetrics
         val normalized = blocks.mapNotNull { b ->
             b.bounds.let { nb ->
-                if (nb.isValid()) GuidanceFrame.TextBlock(b.text, nb, b.isEditable, b.isPassword) else null
+                if (nb.isValid()) GuidanceFrame.TextBlock(
+                    b.text, nb, b.isEditable, b.isPassword, b.className, b.viewId, b.parentText
+                ) else null
             }
         }
-        val packageName = event?.packageName?.toString() ?: ""
-        val pageHash = (packageName + normalized.joinToString("|") { it.text }).hashCode().toString()
+        // 包名必须以 rootInActiveWindow 为准：event.packageName 可能来自输入法/系统浮层，
+        // 与真实内容不一致时会绕过包白名单校验（用白名单包名承载其它 App 的内容）。
+        val packageName = root.packageName?.toString()
+            ?: event?.packageName?.toString().orEmpty()
+        if (packageName.isBlank()) return
+        // 页面哈希只含结构信息（包名/控件 id/文本/尺寸/旋转），不含屏幕位图。
+        val pageHash = buildString {
+            append(packageName).append('|')
+                .append(dm.widthPixels).append('x').append(dm.heightPixels).append('|')
+                .append(resources.configuration.orientation)
+            normalized.forEach { b ->
+                append('|').append(b.viewId ?: "-").append(':').append(b.text)
+            }
+        }.hashCode().toString()
         val kg = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
         val frame = GuidanceFrame(
+            // 每次采集生成新的帧标识：远程标注必须回传当前值，旧帧标注会被丢弃（8.7）。
+            frameId = java.util.UUID.randomUUID().toString(),
             packageName = packageName,
             pageHash = pageHash,
             timestampMs = System.currentTimeMillis(),
+            rotation = displayRotation(),
+            densityDpi = dm.densityDpi,
+            // 无障碍层拿不到可靠窗口 Insets（0 为保守值）；坐标本身已是全屏归一化，
+            // 悬浮层渲染使用 WindowMetrics 尺寸，显示变化时由采集循环触发 onDisplayChanged。
+            insets = GuidanceFrame.Insets(0, 0, 0, 0),
             textBlocks = normalized,
             isSecure = false, // FLAG_SECURE 由采集侧/窗口标志判定，无障碍无法可靠获取
             isLocked = runCatching { kg.isKeyguardLocked }.getOrDefault(false),
@@ -66,29 +87,55 @@ class GuidanceAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** 递归收集文本节点（只读）。只取 text/contentDescription 与屏幕边界；密码字段不记文本。 */
+    /**
+     * 递归收集文本节点（只读）。只取 text/contentDescription、类名、资源 id 与屏幕边界。
+     * 安全：密码字段与已遮蔽输入只记 [GuidanceFrame.TextBlock.isPassword] 标志，不记文本；
+     * 可编辑字段的父容器文本同样不回传，避免把用户输入经父节点带出。
+     */
     private fun collectNodes(
         node: AccessibilityNodeInfo,
         out: MutableList<GuidanceFrame.TextBlock>,
         limit: Int,
-        depth: Int
+        depth: Int,
+        parentText: String?
     ) {
         if (out.size >= limit || depth > 40) return
         val rect = Rect()
         node.getBoundsInScreen(rect)
         val nb = NormalizedBounds.fromPixel(rect, resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
         if (nb != null) {
-            val isPwd = node.isPassword
-            val text = if (isPwd) "" else (node.text ?: node.contentDescription)?.toString()?.take(120) ?: ""
+            val raw = (node.text ?: node.contentDescription)?.toString()?.take(120) ?: ""
+            // 可编辑字段的内容一律不进入帧（避免把用户输入带出）；已遮蔽输入直接标记为密码。
+            val masked = node.isEditable && SensitivePageDetector.isMaskedInput(raw)
+            val isPwd = node.isPassword || masked
+            val text = if (node.isEditable || isPwd) "" else raw
             if (text.isNotBlank() || isPwd) {
-                out.add(GuidanceFrame.TextBlock(text, nb, node.isEditable, isPwd))
+                out.add(
+                    GuidanceFrame.TextBlock(
+                        text = text,
+                        bounds = nb,
+                        isEditable = node.isEditable,
+                        isPassword = isPwd,
+                        className = node.className?.toString()?.take(80),
+                        viewId = node.viewIdResourceName?.take(160),
+                        parentText = parentText
+                    )
+                )
             }
         }
+        val childParentText = if (node.isPassword || node.isEditable) null
+        else (node.text ?: node.contentDescription)?.toString()?.take(60)
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            collectNodes(child, out, limit, depth + 1)
+            collectNodes(child, out, limit, depth + 1, childParentText)
         }
     }
+
+    /** 屏幕旋转（0/90/180/270），用于帧快照与显示变化判定。 */
+    @Suppress("DEPRECATION")
+    private fun displayRotation(): Int = runCatching {
+        (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.rotation
+    }.getOrDefault(0)
 
     override fun onInterrupt() { /* 服务被中断时无需特殊处理 */ }
 

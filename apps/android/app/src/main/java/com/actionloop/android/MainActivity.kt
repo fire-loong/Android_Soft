@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.actionloop.android.assist.GuidanceRuntime
 import com.actionloop.android.data.Session
 import com.actionloop.android.designsystem.ActionLoopTheme
 import com.actionloop.android.notifications.SourceUploadWorker
@@ -42,10 +43,14 @@ class MainActivity : ComponentActivity() {
     /** 提醒通知点击后待打开的事项 id；由 Compose 观察并导航。 */
     private val pendingTask = mutableStateOf<String?>(null)
 
+    /** 悬浮层“求助”按钮拉起 App 后待打开的协助入口。 */
+    private val pendingHelp = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedText.value = extractSharedText(intent)
         pendingTask.value = intent.getStringExtra("openTask")
+        pendingHelp.value = intent?.action == GuidanceRuntime.ACTION_HELP_REQUEST
         setContent {
             ActionLoopTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -61,6 +66,21 @@ class MainActivity : ComponentActivity() {
                         if (openTask != null && Session.isLoggedIn) {
                             screen = Screen.TaskDetail(openTask)
                             pendingTask.value = null
+                        }
+                    }
+                    // 悬浮层“求助”：打开 App 内的协助入口（不在后台静默发起网络请求）。
+                    LaunchedEffect(pendingHelp.value) {
+                        if (pendingHelp.value) {
+                            if (Session.isLoggedIn) {
+                                screen = Screen.Permissions
+                            } else {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "请先登录，再在权限中心发起远程求助",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            pendingHelp.value = false
                         }
                     }
                     when (val s = screen) {
@@ -110,6 +130,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         extractSharedText(intent)?.let { sharedText.value = it }
         intent.getStringExtra("openTask")?.let { pendingTask.value = it }
+        if (intent.action == GuidanceRuntime.ACTION_HELP_REQUEST) pendingHelp.value = true
     }
 
     /** 只接受用户主动分享的文字；不读取任何第三方应用数据。*/

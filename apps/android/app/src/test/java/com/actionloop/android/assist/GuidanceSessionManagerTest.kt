@@ -33,6 +33,7 @@ class GuidanceSessionManagerTest {
     private lateinit var manager: GuidanceSessionManager
 
     private val normalFrame = GuidanceFrame(
+        frameId = "frame-1",
         packageName = "com.actionloop.guidancetest",
         pageHash = "page-home",
         timestampMs = 1_700_000_000_000,
@@ -44,13 +45,31 @@ class GuidanceSessionManagerTest {
         y: Double = 0.2,
         w: Double = 0.3,
         h: Double = 0.1,
-        expiresAt: Long? = System.currentTimeMillis() + 5_000
+        expiresAt: Long? = System.currentTimeMillis() + 5_000,
+        frameId: String? = "frame-1"
     ): Map<String, Any?> = mapOf(
         "bounds" to mapOf("x" to x, "y" to y, "width" to w, "height" to h),
-        "frameId" to "frame-1",
+        "frameId" to frameId,
         "label" to "点击这里",
         "expiresAt" to expiresAt
     )
+
+    private fun pointerPayload(
+        frameId: String = "frame-1",
+        expiresAt: Long = System.currentTimeMillis() + 5_000
+    ): Map<String, Any?> = mapOf(
+        "bounds" to mapOf("x" to 0.4, "y" to 0.4, "width" to 0.02, "height" to 0.02),
+        "frameId" to frameId,
+        "expiresAt" to expiresAt
+    )
+
+    /** 进入 ACTIVE 并提交一帧，使会话具备可绑定标注的当前帧。 */
+    private suspend fun activeWithFrame(): GuidanceSessionManager {
+        manager.start()
+        manager.consentGranted()
+        manager.onFrame(normalFrame)
+        return manager
+    }
 
     @Before
     fun setUp() {
@@ -95,17 +114,18 @@ class GuidanceSessionManagerTest {
 
     @Test
     fun `合法高亮在活跃会话中生效`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
         val snap = manager.snapshot()
         assertEquals(GuidanceSessionState.HIGHLIGHTING, snap.state)
         assertNotNull(snap.highlight)
         assertEquals(0.1, snap.highlight!!.bounds.x, 1e-9)
+        assertEquals("frame-1", snap.highlight!!.frameId)
     }
 
     @Test
     fun `越界与过期高亮被丢弃`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(x = 0.9, w = 0.5)))
         assertFalse(
             manager.applyIncomingEvent(
@@ -113,30 +133,90 @@ class GuidanceSessionManagerTest {
             )
         )
         assertNull(manager.snapshot().highlight)
-        assertEquals(GuidanceSessionState.ACTIVE, manager.snapshot().state)
     }
 
     @Test
     fun `敏感帧清除高亮并暂停随后拒绝远程高亮`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
-        manager.onFrame(normalFrame.copy(isSecure = true))
+        manager.onFrame(normalFrame.copy(frameId = "frame-secure", isSecure = true))
         val snap = manager.snapshot()
         assertEquals(GuidanceSessionState.PAUSED, snap.state)
         assertNull(snap.highlight)
         assertTrue(snap.pageSensitive)
-        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(frameId = "frame-secure")))
     }
 
     @Test
     fun `采集侧FLAG_SECURE窗口内拒绝高亮`() = runBlocking {
         manager.start(); manager.consentGranted()
-        manager.markCaptureSecure()
+        manager.onFrame(normalFrame)
+        manager.onCaptureSecure()
         val snap = manager.snapshot()
         assertTrue(snap.pageSensitive)
         assertEquals("FLAG_SECURE frame", snap.sensitiveReason)
+        assertEquals(GuidanceSessionState.PAUSED, snap.state)
         assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
         assertNull(manager.snapshot().highlight)
+    }
+
+    @Test
+    fun `采集侧报告FLAG_SECURE立即清除既有标注并暂停`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "请点这里", "frameId" to "frame-1")))
+        // 不换帧直接报告 FLAG_SECURE：必须由 onCaptureSecure 自己清掉高亮/文字提示，而不是依赖换帧。
+        manager.onCaptureSecure()
+        val snap = manager.snapshot()
+        assertEquals(GuidanceSessionState.PAUSED, snap.state)
+        assertNull(snap.highlight)
+        assertNull(snap.textHint)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "CAPTURE_SECURE" })
+    }
+
+    @Test
+    fun `敏感帧清除远程文字提示`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "请输入验证码", "frameId" to "frame-1")))
+        assertEquals("请输入验证码", manager.snapshot().textHint)
+        // 同一 frameId 直接变敏感：必须由敏感分支清掉文字提示，而不是靠换帧。
+        manager.onFrame(normalFrame.copy(isSecure = true))
+        assertNull(manager.snapshot().textHint)
+        assertFalse(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "继续", "frameId" to "frame-1")))
+    }
+
+    @Test
+    fun `文字提示必须绑定当前帧并在换帧后失效`() = runBlocking {
+        activeWithFrame()
+        assertFalse(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "无帧标识")))
+        assertFalse(
+            manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "旧帧", "frameId" to "frame-old"))
+        )
+        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "当前帧", "frameId" to "frame-1")))
+        manager.onFrame(normalFrame.copy(frameId = "frame-2"))
+        assertNull(manager.snapshot().textHint)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "TEXT_HINT_STALE" })
+    }
+
+    @Test
+    fun `TEXT_ONLY下远程暂停也会进入PAUSED`() = runBlocking {
+        activeWithFrame()
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertTrue(manager.applyIncomingEvent("s-1", "PAUSE", emptyMap()))
+        assertEquals(GuidanceSessionState.PAUSED, manager.snapshot().state)
+        assertFalse(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to "继续", "frameId" to "frame-1")))
+    }
+
+    @Test
+    fun `显示尺寸或旋转变化会作废旧帧并暂停`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        manager.onDisplayChanged()
+        val snap = manager.snapshot()
+        assertEquals(GuidanceSessionState.PAUSED, snap.state)
+        assertNull(snap.highlight)
+        assertNull(snap.frameId)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "DISPLAY_CHANGED" })
     }
 
     @Test
@@ -162,7 +242,7 @@ class GuidanceSessionManagerTest {
 
     @Test
     fun `步骤完成标记为 COMPLETED 并清空高亮`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload())
         manager.userConfirmedStepComplete()
         assertEquals(GuidanceSessionState.COMPLETED, manager.snapshot().state)
@@ -179,9 +259,9 @@ class GuidanceSessionManagerTest {
 
     @Test
     fun `文字提示长度被截断`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         val long = "请".repeat(1000)
-        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to long)))
+        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf("text" to long, "frameId" to "frame-1")))
         assertEquals(500, manager.snapshot().textHint!!.length)
     }
 
@@ -204,7 +284,7 @@ class GuidanceSessionManagerTest {
 
     @Test
     fun `缺失过期时间的高亮被拒绝`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         // 13.5：HIGHLIGHT 必须含 expiresAt，缺失即拒，避免标注永久驻留。
         assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(expiresAt = null)))
         assertNull(manager.snapshot().highlight)
@@ -212,19 +292,20 @@ class GuidanceSessionManagerTest {
 
     @Test
     fun `过期高亮在读取快照时被丢弃`() = runBlocking {
-        manager.start(); manager.consentGranted()
+        activeWithFrame()
         val expiring = highlightPayload(expiresAt = System.currentTimeMillis() + 300)
         assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", expiring))
         assertNotNull(manager.snapshot().highlight)
-        Thread.sleep(500)
+        // 过期判定走单调时钟；Robolectric 的 elapsedRealtime 不随 Thread.sleep 前进，需显式推进。
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(500))
         assertNull(manager.snapshot().highlight)
         assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "HIGHLIGHT_EXPIRED" })
     }
 
     @Test
     fun `非法状态迁移被拦截并记录而不改变状态`() = runBlocking {
-        manager.start(); manager.consentGranted()
-        manager.userConfirmedStepComplete() // ACTIVE 下不满足完成条件
+        activeWithFrame()
+        manager.userConfirmedStepComplete() // TEXT_ONLY 下不满足完成条件
         manager.pause("user")
         manager.applyIncomingEvent("s-1", "RESUME", emptyMap())
         manager.consentGranted() // CONSENT_PENDING → ACTIVE
@@ -262,5 +343,161 @@ class GuidanceSessionManagerTest {
         assertEquals(GuidanceSessionState.ACTIVE, manager.snapshot().state)
         manager.start()
         assertEquals(GuidanceSessionState.CONSENT_PENDING, manager.snapshot().state)
+    }
+
+    // ---- 8.7 帧绑定与旧标注失效 ----
+
+    @Test
+    fun `缺少frameId的标注被拒绝并审计`() = runBlocking {
+        activeWithFrame()
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(frameId = null)))
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(frameId = "  ")))
+        assertNull(manager.snapshot().highlight)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "ANNOTATION_NO_FRAME_ID" })
+    }
+
+    @Test
+    fun `未收到任何帧时标注被拒绝`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertNull(manager.snapshot().highlight)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "ANNOTATION_NO_FRAME" })
+    }
+
+    @Test
+    fun `非当前帧的标注被拒绝并审计`() = runBlocking {
+        activeWithFrame()
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(frameId = "frame-old")))
+        assertNull(manager.snapshot().highlight)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "ANNOTATION_STALE_FRAME" })
+    }
+
+    @Test
+    fun `新帧到达时绑定旧帧的高亮立即失效`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertNotNull(manager.snapshot().highlight)
+        manager.onFrame(normalFrame.copy(frameId = "frame-2"))
+        assertNull(manager.snapshot().highlight)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "HIGHLIGHT_STALE" })
+    }
+
+    @Test
+    fun `空frameId的帧被丢弃且不绑定标注`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        manager.onFrame(normalFrame.copy(frameId = ""))
+        assertNull(manager.snapshot().highlight)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "FRAME_INVALID" })
+        // 旧帧标识仍在，但新标注不能凭空落到空帧上
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+    }
+
+    // ---- POINTER ----
+
+    @Test
+    fun `指针标注绑定当前帧且必须有过期时间`() = runBlocking {
+        activeWithFrame()
+        assertTrue(manager.applyIncomingEvent("s-1", "POINTER", pointerPayload()))
+        assertEquals(0.4, manager.snapshot().pointer!!.x, 1e-9)
+        assertFalse(manager.applyIncomingEvent("s-1", "POINTER", pointerPayload(frameId = "frame-9")))
+        assertFalse(
+            manager.applyIncomingEvent(
+                "s-1", "POINTER",
+                mapOf(
+                    "bounds" to mapOf("x" to 0.4, "y" to 0.4, "width" to 0.02, "height" to 0.02),
+                    "frameId" to "frame-1"
+                )
+            )
+        )
+        manager.onFrame(normalFrame.copy(frameId = "frame-2"))
+        assertNull(manager.snapshot().pointer)
+    }
+
+    // ---- 8.4 本地匹配器 ----
+
+    private fun block(
+        text: String,
+        x: Double,
+        y: Double,
+        viewId: String? = null,
+        className: String? = "android.widget.Button",
+        parentText: String? = null
+    ) = GuidanceFrame.TextBlock(
+        text = text,
+        bounds = NormalizedBounds(x, y, 0.3, 0.08),
+        className = className,
+        viewId = viewId,
+        parentText = parentText
+    )
+
+    private fun frameWith(vararg blocks: GuidanceFrame.TextBlock, frameId: String = "frame-1") =
+        normalFrame.copy(frameId = frameId, textBlocks = blocks.toList())
+
+    private fun nextTarget() = GuidanceTarget(
+        packageName = "com.actionloop.guidancetest",
+        labels = listOf("下一步"),
+        viewIdHint = "btn_next",
+        roleHint = "button",
+        expectedBounds = NormalizedBounds(0.1, 0.7, 0.3, 0.08)
+    )
+
+    @Test
+    fun `本机匹配器按文本与稳定节点命中并绑定当前帧`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(nextTarget())
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "com.actionloop.guidancetest:id/btn_next")))
+        val snap = manager.snapshot()
+        assertNotNull(snap.highlight)
+        assertEquals("frame-1", snap.highlight!!.frameId)
+        assertEquals(0.1, snap.highlight!!.bounds.x, 1e-9)
+        assertTrue(snap.state == GuidanceSessionState.HIGHLIGHTING || snap.state == GuidanceSessionState.WAITING_USER)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "LOCAL_MATCH" })
+    }
+
+    @Test
+    fun `前两名同分时拒绝指向任何一个按钮`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(GuidanceTarget("com.actionloop.guidancetest", listOf("下一步")))
+        manager.onFrame(
+            frameWith(
+                block("下一步", 0.1, 0.6),
+                block("下一步", 0.1, 0.8)
+            )
+        )
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertNull(manager.snapshot().highlight)
+    }
+
+    @Test
+    fun `仅文本包含且无其他证据时降级文字`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(GuidanceTarget("com.actionloop.guidancetest", listOf("下一步")))
+        manager.onFrame(frameWith(block("下一步请点击这里", 0.1, 0.6)))
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertNull(manager.snapshot().highlight)
+    }
+
+    @Test
+    fun `非白名单包或锁屏帧不做本地匹配`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(nextTarget())
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7)).copy(allowlistedPackage = false))
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7)).copy(isLocked = true))
+        assertEquals(GuidanceSessionState.PAUSED, manager.snapshot().state)
+        assertNull(manager.snapshot().highlight)
+    }
+
+    @Test
+    fun `撤销目标后匹配会话立即降级文字`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(nextTarget())
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "btn_next")))
+        assertNotNull(manager.snapshot().highlight)
+        manager.setTarget(null)
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "btn_next"), frameId = "frame-2"))
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertNull(manager.snapshot().highlight)
     }
 }

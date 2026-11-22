@@ -36,6 +36,7 @@ class GuidanceOverlay(private val context: Context) {
 
     private var highlightView: HighlightView? = null
     private var controlBar: LinearLayout? = null
+    private var pauseButton: Button? = null
     private var shown = false
 
     private class HighlightView(context: Context) : View(context) {
@@ -51,27 +52,60 @@ class GuidanceOverlay(private val context: Context) {
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK; textSize = 40f; isFakeBoldText = true
         }
+        /** 指针标注：红色实心 + 白色描边，不依赖颜色也能看清。 */
+        private val pointerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FF1744") }
+        private val pointerStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 6f
+        }
+        private val hintBg = Paint().apply { color = Color.parseColor("#DD000000") }
+        private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textSize = 38f; isFakeBoldText = true
+        }
 
         override fun onDraw(canvas: Canvas) {
-            val hl = snapshot?.highlight ?: return
+            val snap = snapshot ?: return
             if (displayWidth <= 0 || displayHeight <= 0) return
-            val rect = hl.bounds.toPixel(displayWidth, displayHeight)
-            if (rect.isEmpty) return
-            // 半透明遮罩（四块区域绕开目标），保证目标可见
-            canvas.drawRect(0f, 0f, width.toFloat(), rect.top.toFloat(), dimPaint)
-            canvas.drawRect(0f, rect.bottom.toFloat(), width.toFloat(), height.toFloat(), dimPaint)
-            canvas.drawRect(0f, rect.top.toFloat(), rect.left.toFloat(), rect.bottom.toFloat(), dimPaint)
-            canvas.drawRect(rect.right.toFloat(), rect.top.toFloat(), width.toFloat(), rect.bottom.toFloat(), dimPaint)
-            // 高对比描边
-            canvas.drawRect(rect, strokePaint)
-            // 目标文字（非仅颜色）
-            val label = hl.label
-            if (!label.isNullOrBlank()) {
-                val text = label.take(16)
-                val tw = textPaint.measureText(text)
-                val ty = (rect.top - 14).coerceAtLeast(50).toFloat()
-                canvas.drawRect(rect.left.toFloat(), ty - 44f, rect.left.toFloat() + tw + 24f, ty, labelBg)
-                canvas.drawText(text, rect.left.toFloat() + 12f, ty - 12f, textPaint)
+            snap.highlight?.let { hl ->
+                val rect = hl.bounds.toPixel(displayWidth, displayHeight)
+                if (!rect.isEmpty) {
+                    // 半透明遮罩（四块区域绕开目标），保证目标可见
+                    canvas.drawRect(0f, 0f, width.toFloat(), rect.top.toFloat(), dimPaint)
+                    canvas.drawRect(0f, rect.bottom.toFloat(), width.toFloat(), height.toFloat(), dimPaint)
+                    canvas.drawRect(0f, rect.top.toFloat(), rect.left.toFloat(), rect.bottom.toFloat(), dimPaint)
+                    canvas.drawRect(rect.right.toFloat(), rect.top.toFloat(), width.toFloat(), rect.bottom.toFloat(), dimPaint)
+                    // 高对比描边
+                    canvas.drawRect(rect, strokePaint)
+                    // 目标文字（非仅颜色）
+                    val label = hl.label
+                    if (!label.isNullOrBlank()) {
+                        val text = label.take(16)
+                        val tw = textPaint.measureText(text)
+                        val ty = (rect.top - 14).coerceAtLeast(50).toFloat()
+                        canvas.drawRect(rect.left.toFloat(), ty - 44f, rect.left.toFloat() + tw + 24f, ty, labelBg)
+                        canvas.drawText(text, rect.left.toFloat() + 12f, ty - 12f, textPaint)
+                    }
+                }
+            }
+            // 指针标注：与高亮可同时存在，仍完全触摸穿透。
+            snap.pointer?.let { p ->
+                val rect = p.toPixel(displayWidth, displayHeight)
+                val cx = rect.exactCenterX()
+                val cy = rect.exactCenterY()
+                canvas.drawCircle(cx, cy, 30f, pointerFill)
+                canvas.drawCircle(cx, cy, 30f, pointerStroke)
+                canvas.drawCircle(cx, cy, 6f, pointerStroke)
+            }
+            // 远程文字提示：底部高对比条，只展示文字，不接收输入。
+            snap.textHint?.takeIf { it.isNotBlank() }?.let { hint ->
+                var text = hint.take(80).replace('\n', ' ')
+                val maxWidth = width - 96f
+                while (text.length > 1 && hintPaint.measureText(text) > maxWidth) {
+                    text = text.dropLast(1)
+                }
+                val tw = hintPaint.measureText(text)
+                val top = (height - 260f).coerceAtLeast(160f)
+                canvas.drawRoundRect(48f, top, 48f + tw + 48f, top + 104f, 28f, 28f, hintBg)
+                canvas.drawText(text, 72f, top + 68f, hintPaint)
             }
         }
     }
@@ -95,7 +129,7 @@ class GuidanceOverlay(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
-        wm.addView(hv, lpHighlight)
+        if (runCatching { wm.addView(hv, lpHighlight) }.isFailure) return false
         highlightView = hv
 
         val bar = buildControlBar()
@@ -109,7 +143,13 @@ class GuidanceOverlay(private val context: Context) {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = (dm.density * 12).toInt()
         }
-        wm.addView(bar, lpBar)
+        val barAdded = runCatching { wm.addView(bar, lpBar) }.isSuccess
+        if (!barAdded) {
+            // 控制条添加失败时不能留下“无停止入口”的高亮层：整体回滚。
+            runCatching { wm.removeView(hv) }
+            highlightView = null
+            return false
+        }
         controlBar = bar
 
         shown = true
@@ -140,15 +180,20 @@ class GuidanceOverlay(private val context: Context) {
             setOnClickListener {
                 scope.launch {
                     val m = GuidanceRuntime.manager(context)
-                    val snap = m.snapshot()
-                    if (snap.state == GuidanceSessionState.PAUSED) {
-                        m.userResume()
-                    } else {
-                        m.pause("user_overlay")
+                    when (m.snapshot().state) {
+                        GuidanceSessionState.PAUSED -> m.userResume()
+                        // 远程 RESUME 只把状态推到 CONSENT_PENDING，必须由用户在本机再次同意（8.3）。
+                        GuidanceSessionState.CONSENT_PENDING -> m.consentGranted()
+                        else -> m.pause("user_overlay")
                     }
                     GuidanceRuntime.render(context)
                 }
             }
+        }
+        this.pauseButton = pauseBtn
+        val helpBtn = Button(context).apply {
+            text = "求助"
+            setOnClickListener { GuidanceRuntime.requestHelp(context) }
         }
         val stopBtn = Button(context).apply {
             text = "停止"
@@ -162,6 +207,7 @@ class GuidanceOverlay(private val context: Context) {
         }
         bar.addView(stateText)
         bar.addView(pauseBtn)
+        bar.addView(helpBtn)
         bar.addView(stopBtn)
         bar.tag = stateText
         return bar
@@ -179,6 +225,18 @@ class GuidanceOverlay(private val context: Context) {
             it.snapshot = snapshot
             it.displayWidth = w
             it.displayHeight = h
+            // 供 TalkBack 读取当前提示；不依赖颜色传达信息（8.5）。
+            it.contentDescription = buildString {
+                snapshot.textHint?.takeIf(String::isNotBlank)?.let { hint -> append(hint) }
+                snapshot.highlight?.label?.takeIf(String::isNotBlank)?.let { label ->
+                    if (isNotEmpty()) append("；")
+                    append("高亮目标：").append(label)
+                }
+                if (snapshot.pageSensitive) {
+                    if (isNotEmpty()) append("；")
+                    append("检测到敏感页面，已暂停并清除标注")
+                }
+            }.ifBlank { "引导提示" }
             it.invalidate()
         }
         (controlBar?.tag as? TextView)?.let { tv ->
@@ -189,11 +247,16 @@ class GuidanceOverlay(private val context: Context) {
                 GuidanceSessionState.PAUSED -> "已暂停"
                 GuidanceSessionState.STOPPED -> "已停止"
                 GuidanceSessionState.COMPLETED -> "本步完成"
+                GuidanceSessionState.CONSENT_PENDING -> "待再次同意"
                 else -> "就绪"
             }
             val sens = if (snapshot.pageSensitive) " · 敏感页已遮罩" else ""
             tv.text = "引导：$stateLabel$sens"
         }
+        pauseButton?.text =
+            if (snapshot.state == GuidanceSessionState.PAUSED ||
+                snapshot.state == GuidanceSessionState.CONSENT_PENDING
+            ) "恢复" else "暂停"
     }
 
     fun hide() {
@@ -203,5 +266,6 @@ class GuidanceOverlay(private val context: Context) {
         controlBar?.let { runCatching { wm.removeView(it) } }
         highlightView = null
         controlBar = null
+        pauseButton = null
     }
 }

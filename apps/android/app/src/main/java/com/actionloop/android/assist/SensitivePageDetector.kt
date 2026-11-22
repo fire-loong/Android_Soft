@@ -24,7 +24,7 @@ object SensitivePageDetector {
     fun evaluate(frame: GuidanceFrame): Result {
         if (frame.isLocked) return Result(true, "锁屏状态")
         if (frame.isSecure) return Result(true, "FLAG_SECURE 安全窗口")
-        if (frame.textBlocks.any { it.isPassword || it.isEditable && looksLikePassword(it.text) }) {
+        if (frame.textBlocks.any { it.isPassword || it.isEditable && isMaskedInput(it.text) }) {
             return Result(true, "检测到密码/可编辑敏感字段")
         }
         if (SENSITIVE_PACKAGES.contains(frame.packageName)) {
@@ -45,8 +45,9 @@ object SensitivePageDetector {
     /**
      * 已遮蔽输入判定：部分 App 的自定义密码/验证码框不设置 isPassword 标志，
      * 只把内容渲染成掩码符号。此类页面必须判为敏感（误报只会降级为文字步骤，不产生越权）。
+     * 采集侧在记录节点时也调用本方法，把已遮蔽输入直接标记为 isPassword 并清空文本。
      */
-    private fun looksLikePassword(text: String): Boolean {
+    fun isMaskedInput(text: String): Boolean {
         // 去掉空格等分隔符：部分 App 会把掩码渲染成 "• • • •"。
         val compact = text.filterNot { it.isWhitespace() }
         return compact.isNotEmpty() && compact.all { it in MASK_CHARS }

@@ -24,7 +24,8 @@ enum class GuidanceSessionState {
      *   停止是安全出口，不允许被状态机拒绝；
      * - ACTIVE → HIGHLIGHTING：8.7 远程标注可在授权后、首帧对齐前先到达，仍需渲染到当前帧；
      * - HIGHLIGHTING/WAITING_USER → TEXT_ONLY：8.4 页面变化导致匹配不达标时，旧高亮必须立即失效并降级文字；
-     * - TEXT_ONLY → ALIGNING：8.4 要求按帧连续匹配，页面变化后允许重新对齐（不放宽任何安全约束）。
+     * - TEXT_ONLY → ALIGNING：8.4 要求按帧连续匹配，页面变化后允许重新对齐（不放宽任何安全约束）；
+     * - TEXT_ONLY → PAUSED：文字降级仍是进行中的引导，8.3/8.5 要求锁屏/敏感页/用户暂停在任何活跃态都能暂停。
      * 终态（COMPLETED/STOPPED）不可迁出，只能由 reset() 重置后重新开始。
      */
     fun canTransitionTo(target: GuidanceSessionState): Boolean = when (this) {
@@ -34,7 +35,7 @@ enum class GuidanceSessionState {
         ALIGNING -> target in setOf(HIGHLIGHTING, TEXT_ONLY, ACTIVE, PAUSED, STOPPED)
         HIGHLIGHTING -> target in setOf(WAITING_USER, COMPLETED, PAUSED, STOPPED, ALIGNING, TEXT_ONLY)
         WAITING_USER -> target in setOf(ALIGNING, COMPLETED, PAUSED, STOPPED, TEXT_ONLY)
-        TEXT_ONLY -> target in setOf(ALIGNING, STOPPED)
+        TEXT_ONLY -> target in setOf(ALIGNING, PAUSED, STOPPED)
         PAUSED -> target == CONSENT_PENDING || target == STOPPED
         COMPLETED, STOPPED -> false
     }

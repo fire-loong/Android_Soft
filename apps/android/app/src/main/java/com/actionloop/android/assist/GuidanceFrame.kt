@@ -4,12 +4,17 @@ import kotlinx.serialization.Serializable
 
 /**
  * 最小化引导帧（指导书 8.4）。
- * 每帧只保留定位与安全判定所需的最小信息：包名白名单状态、页面哈希、时间戳、
+ * 每帧只保留定位与安全判定所需的最小信息：帧标识、包名白名单状态、页面哈希、时间戳、
  * 旋转/密度/窗口 Insets、节点或 OCR 文本块与归一化边界、敏感标志。
  * 密码文本、完整屏幕位图和无关通知内容不得进入本结构，也不得进入日志。
+ *
+ * [frameId] 是 8.7 远程标注的绑定键：每次页面采集生成新的唯一值，
+ * 协助者的 HIGHLIGHT/POINTER 必须携带当前 frameId，旧帧标注一律丢弃，
+ * 保证按钮移动/旋转/弹键盘后不会停留在旧位置误导用户。
  */
 @Serializable
 data class GuidanceFrame(
+    val frameId: String,
     val packageName: String,
     val pageHash: String,
     val timestampMs: Long,
@@ -32,7 +37,13 @@ data class GuidanceFrame(
         val bounds: NormalizedBounds,
         /** 该文本块是否来自可编辑/密码字段（用于敏感判定，不记录实际内容）。 */
         val isEditable: Boolean = false,
-        val isPassword: Boolean = false
+        val isPassword: Boolean = false,
+        /** 控件类名（如 android.widget.Button）。仅用于角色/层级评分，不含用户数据。 */
+        val className: String? = null,
+        /** 资源 id（如 com.actionloop.guidancetest:id/btn_next）。稳定节点标识，仅本机使用。 */
+        val viewId: String? = null,
+        /** 父容器文本（最多 60 字），用于层级与相对位置评分；密码/可编辑父节点不回传文本。 */
+        val parentText: String? = null
     )
 }
 

@@ -17,6 +17,7 @@ class SensitivePageDetectorTest {
         secure: Boolean = false,
         locked: Boolean = false
     ) = GuidanceFrame(
+        frameId = "frame-1",
         packageName = pkg,
         pageHash = "hash-1",
         timestampMs = 1_700_000_000_000,
