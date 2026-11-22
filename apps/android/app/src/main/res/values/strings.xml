@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ActionLoop</string>
+
+    <!-- 跨 App 引导 / 远程协助（指导书 8.x） -->
+    <string name="accessibility_service_desc">只读读取当前页面的控件文本与位置，用于在你授权的流程中高亮目标并给出文字提示。不会自动点击、滑动、输入或提交；可随时在系统设置中关闭。</string>
+    <string name="assist_notif_channel">引导与协助</string>
+    <string name="assist_notif_title">ActionLoop 引导进行中</string>
+    <string name="assist_notif_text">高亮当前目标，所有操作仍由你亲自完成。点此停止。</string>
+    <string name="assist_notif_stop">停止引导</string>
+</resources>

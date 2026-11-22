@@ -1,0 +1,144 @@
+server:
+  port: ${ACTIONLOOP_API_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: actionloop-api
+  profiles:
+    active: ${ACTIONLOOP_PROFILES:}
+  autoconfigure:
+    exclude:
+      # 无状态 API 不使用 Spring Boot 默认内存用户；身份认证由后续 JWT 过滤器提供（指导书 13.x）
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: jdbc:postgresql://${ACTIONLOOP_DB_HOST:127.0.0.1}:${ACTIONLOOP_DB_PORT:5432}/${ACTIONLOOP_DB_NAME:actionloop}
+    username: ${ACTIONLOOP_DB_USER:postgres}
+    password: ${ACTIONLOOP_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+  data:
+    redis:
+      host: ${ACTIONLOOP_REDIS_HOST:127.0.0.1}
+      port: ${ACTIONLOOP_REDIS_PORT:6379}
+      password: ${ACTIONLOOP_REDIS_PASSWORD:}
+      timeout: 3000ms
+      repositories:
+        enabled: false  # 不使用 Spring Data Redis 仓储，避免 JPA 仓储被误识别为 Redis 仓储的噪音日志
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+  health:
+    redis:
+      enabled: false  # 默认 INFO 解析在 Windows Redis 下因路径反斜杠失败，改用自定义 PING 指示器（见 RedisHealthConfig）
+  info:
+    env:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    # 默认关闭：接口契约只在显式开启的开发/测试环境暴露（指导书 15.x 减少攻击面）
+    enabled: ${ACTIONLOOP_API_DOCS_ENABLED:false}
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${ACTIONLOOP_API_DOCS_ENABLED:false}
+
+app:
+  api-docs:
+    public: ${ACTIONLOOP_API_DOCS_PUBLIC:false}
+  jwt:
+    secret: ${ACTIONLOOP_JWT_SECRET:change_me_jwt_secret_at_least_32_bytes_long}
+    access-ttl-minutes: ${ACTIONLOOP_ACCESS_TTL_MINUTES:15}
+    refresh-ttl-days: ${ACTIONLOOP_REFRESH_TTL_DAYS:30}
+  ai:
+    provider: ${ACTIONLOOP_AI_PROVIDER:deterministic}
+    base-url: ${ACTIONLOOP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${ACTIONLOOP_AI_API_KEY:}
+    model: ${ACTIONLOOP_AI_MODEL:qwen-plus}
+    timeout-seconds: ${ACTIONLOOP_AI_TIMEOUT_SECONDS:20}
+    min-confidence-for-reminder: ${ACTIONLOOP_AI_MIN_CONFIDENCE:0.6}
+  sources:
+    # 官方来源抓取默认只允许 https；SSRF 防护见 SourceFetchService
+    allow-http: ${ACTIONLOOP_SOURCES_ALLOW_HTTP:false}
+  turn:
+    # Coturn 短时凭证；未配置时 /turn-credentials 返回 TURN_UNAVAILABLE
+    urls: ${ACTIONLOOP_TURN_URLS:}
+    secret: ${ACTIONLOOP_TURN_SECRET:}
+    ttl-seconds: ${ACTIONLOOP_TURN_TTL_SECONDS:600}
+  websocket:
+    allowed-origins: ${ACTIONLOOP_WS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  seed:
+    demo: ${ACTIONLOOP_SEED_DEMO:false}
+  storage:
+    type: ${ACTIONLOOP_STORAGE_TYPE:local}
+    max-file-size-bytes: ${ACTIONLOOP_STORAGE_MAX_FILE_BYTES:52428800}
+    quota-bytes-per-workspace: ${ACTIONLOOP_STORAGE_QUOTA_BYTES:5368709120}
+    upload-ttl-minutes: 60
+    download-ttl-minutes: 10
+    local:
+      root: ${ACTIONLOOP_STORAGE_LOCAL_ROOT:data/storage}
+      public-base-url: ${ACTIONLOOP_STORAGE_PUBLIC_BASE_URL:}
+  idempotency:
+    ttl-hours: ${ACTIONLOOP_IDEMPOTENCY_TTL_HOURS:24}
+  membership:
+    # 邀请有效期（天），过期后不可接受/拒绝（指导书 15.3）
+    invite-ttl-days: ${ACTIONLOOP_INVITE_TTL_DAYS:7}
+  cors:
+    # 逗号分隔；为空时仅放行本地开发端（指导书 15.x 白名单，禁止全放行）
+    allowed-origins: ${ACTIONLOOP_CORS_ALLOWED_ORIGINS:}
+    allow-credentials: true
+    max-age-seconds: 3600
+  rate-limit:
+    # 仅当部署在可信反向代理后方才开启；默认使用 TCP 对端地址，防止伪造 XFF 绕过登录限流
+    trust-forwarded-for: ${ACTIONLOOP_RL_TRUST_FORWARDED_FOR:false}
+    # 认证端点按 IP 限流（指导书 15.3）；max-requests=0 关闭该端点限流
+    register:
+      max-requests: ${ACTIONLOOP_RL_REGISTER_MAX:5}
+      window-seconds: ${ACTIONLOOP_RL_REGISTER_WINDOW:600}
+    login:
+      max-requests: ${ACTIONLOOP_RL_LOGIN_MAX:10}
+      window-seconds: ${ACTIONLOOP_RL_LOGIN_WINDOW:60}
+    refresh:
+      max-requests: ${ACTIONLOOP_RL_REFRESH_MAX:30}
+      window-seconds: ${ACTIONLOOP_RL_REFRESH_WINDOW:60}
+
+# 结构化日志：允许字段 allowlist，自动过滤 Authorization/Cookie/令牌/密码/完整文本/屏幕数据（指导书 15.4）
+logging:
+  level:
+    root: INFO
+    com.actionloop: INFO
+    org.springframework.security: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] %logger{36} - %msg%n"

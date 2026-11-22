@@ -1,0 +1,211 @@
+{
+  "format" : "actionloop-export-v1",
+  "exportedAt" : "2026-11-21T14:07:47.349666200Z",
+  "workspace" : {
+    "id" : "01a1fe6f-3ead-7000-8000-000000000000",
+    "name" : "????ab4e6158f7",
+    "created_at" : "2026-11-21T14:07:45.840+00:00"
+  },
+  "members" : [ {
+    "user_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "role" : "OWNER",
+    "status" : "ACTIVE",
+    "joined_at" : "2026-11-21T14:07:45.837+00:00"
+  } ],
+  "tasks" : [ {
+    "id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "title" : "11?25???3??????????,?????????",
+    "description" : "11?25???3??????????,?????????",
+    "status" : "ACTIVE",
+    "owner_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "time_precision" : "NONE",
+    "derivation" : "USER_CONFIRMED_AI",
+    "version" : 0,
+    "created_at" : "2026-11-21T14:07:46.306+00:00"
+  }, {
+    "id" : "01a1fe6f-4372-7000-8000-000000000000",
+    "title" : "?????ab4e6158f7",
+    "status" : "ACTIVE",
+    "owner_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "time_precision" : "NONE",
+    "derivation" : "USER",
+    "version" : 0,
+    "created_at" : "2026-11-21T14:07:47.058+00:00"
+  } ],
+  "task_steps" : [ {
+    "id" : "01a1fe6f-4088-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "title" : "?????",
+    "position" : 0,
+    "status" : "DONE",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000"
+  }, {
+    "id" : "01a1fe6f-437b-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4372-7000-8000-000000000000",
+    "title" : "??????????",
+    "position" : 0,
+    "status" : "TODO",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000"
+  }, {
+    "id" : "01a1fe6f-4089-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "title" : "?????????",
+    "position" : 1,
+    "status" : "TODO",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000"
+  }, {
+    "id" : "01a1fe6f-437b-7000-8000-000000000001",
+    "task_id" : "01a1fe6f-4372-7000-8000-000000000000",
+    "title" : "?????????????",
+    "position" : 1,
+    "status" : "TODO",
+    "assignee_id" : "01a1fe6f-3d3e-7000-8000-000000000000"
+  } ],
+  "materials" : [ {
+    "id" : "01a1fe6f-408a-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "name" : "???",
+    "state" : "MISSING"
+  }, {
+    "id" : "01a1fe6f-408b-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "name" : "???",
+    "state" : "MISSING"
+  } ],
+  "reminders" : [ {
+    "id" : "01a1fe6f-40ba-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "trigger_at" : "2026-11-21T16:07:46.000+00:00",
+    "channel" : "NOTIFICATION",
+    "state" : "SCHEDULED"
+  } ],
+  "completions" : [ {
+    "id" : "01a1fe6f-41a9-7000-8000-000000000000",
+    "task_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "submitter_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "review_state" : "APPROVED",
+    "submitted_at" : "2026-11-21T14:07:46.601+00:00"
+  } ],
+  "comments" : [ ],
+  "sources" : [ {
+    "id" : "01a1fe6f-3f17-7000-8000-000000000000",
+    "source_type" : "NOTIFICATION",
+    "source_app" : "com.smoke",
+    "source_title" : "?????",
+    "content_preview" : "11?25???3??????????,?????????",
+    "privacy_level" : "S2",
+    "received_at" : "2026-11-21T14:07:45.917+00:00"
+  } ],
+  "candidates" : [ {
+    "id" : "01a1fe6f-3f61-7000-8000-000000000000",
+    "title" : "11?25???3??????????,?????????",
+    "summary" : "11?25???3??????????,?????????",
+    "confidence" : 0.3500,
+    "status" : "CONFIRMED",
+    "derivation" : "RULE"
+  } ],
+  "process_templates" : [ {
+    "id" : "01a1fe6f-4245-7000-8000-000000000000",
+    "title" : "?????ab4e6158f7",
+    "region_code" : "CN-ZJ",
+    "current_version_id" : "01a1fe6f-42c3-7000-8000-000000000000"
+  } ],
+  "process_versions" : [ {
+    "id" : "01a1fe6f-42c3-7000-8000-000000000000",
+    "template_id" : "01a1fe6f-4245-7000-8000-000000000000",
+    "version_no" : 1,
+    "review_state" : "PERSONAL_UNVERIFIED",
+    "published_at" : "2026-11-21T14:07:47.010+00:00"
+  } ],
+  "audit_logs" : [ {
+    "id" : "01a1fe6f-43cb-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "assist.create",
+    "object_type" : "assist_session",
+    "object_id" : "01a1fe6f-43c6-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:47.147+00:00"
+  }, {
+    "id" : "01a1fe6f-437c-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "process.instantiate",
+    "object_type" : "task",
+    "object_id" : "01a1fe6f-4372-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:47.074+00:00"
+  }, {
+    "id" : "01a1fe6f-4343-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "process.version.publish",
+    "object_type" : "process_version",
+    "object_id" : "01a1fe6f-42c3-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:47.014+00:00"
+  }, {
+    "id" : "01a1fe6f-42e7-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "process.version.create",
+    "object_type" : "process_version",
+    "object_id" : "01a1fe6f-42c3-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.927+00:00"
+  }, {
+    "id" : "01a1fe6f-424f-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "process.create",
+    "object_type" : "process_template",
+    "object_id" : "01a1fe6f-4245-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.771+00:00"
+  }, {
+    "id" : "01a1fe6f-420d-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "completion.review",
+    "object_type" : "completion",
+    "object_id" : "01a1fe6f-41a9-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.703+00:00"
+  }, {
+    "id" : "01a1fe6f-41b0-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "completion.submit",
+    "object_type" : "completion",
+    "object_id" : "01a1fe6f-41a9-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.609+00:00"
+  }, {
+    "id" : "01a1fe6f-40db-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "candidate.confirm",
+    "object_type" : "candidate",
+    "object_id" : "01a1fe6f-3f61-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.415+00:00"
+  }, {
+    "id" : "01a1fe6f-40bb-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "reminder.replace",
+    "object_type" : "task",
+    "object_id" : "01a1fe6f-4081-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.391+00:00"
+  }, {
+    "id" : "01a1fe6f-3fa2-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "source.share",
+    "object_type" : "source",
+    "object_id" : "01a1fe6f-3f17-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:46.101+00:00"
+  }, {
+    "id" : "01a1fe6f-3eaf-7000-8000-000000000000",
+    "actor_id" : "01a1fe6f-3d3e-7000-8000-000000000000",
+    "action" : "workspace.create",
+    "object_type" : "workspace",
+    "object_id" : "01a1fe6f-3ead-7000-8000-000000000000",
+    "result" : "SUCCESS",
+    "created_at" : "2026-11-21T14:07:45.842+00:00"
+  } ]
+}

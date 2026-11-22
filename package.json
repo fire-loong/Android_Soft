@@ -1,0 +1,20 @@
+{
+  "name": "actionloop",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "description": "日常生活行动系统 ActionLoop — 通知/截图/文件/官方来源转化为可核验完成的统一事项，并提供跨 App 高亮引导。",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @actionloop/web dev",
+    "dev:desktop": "pnpm --filter @actionloop/desktop tauri dev",
+    "build:web": "pnpm --filter @actionloop/web build",
+    "build:desktop": "pnpm --filter @actionloop/desktop build",
+    "lint": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" lint",
+    "typecheck": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" typecheck",
+    "test": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" test",
+    "test:e2e": "pnpm --filter @actionloop/web test:e2e"
+  }
+}

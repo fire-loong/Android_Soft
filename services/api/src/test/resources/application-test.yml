@@ -1,0 +1,44 @@
+# 集成测试专用 profile。
+# 数据源 / Redis 由 AbstractIntegrationTest 的 @DynamicPropertySource 以 TestInfraSettings 为准注入，
+# 此处仅覆盖与基础设施无关的运行参数。
+# 无 PostgreSQL/Redis 时，@EnabledIfTestInfra 条件会跳过集成测试（保持 mvn test 通过）。
+server:
+  port: 0
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  data:
+    redis:
+      repositories:
+        enabled: false
+
+app:
+  jwt:
+    secret: test_jwt_secret_at_least_32_bytes_long_for_actionloop
+  storage:
+    type: local
+    local:
+      root: ${java.io.tmpdir}/actionloop-test-storage
+  rate-limit:
+    register:
+      max-requests: 100000
+      window-seconds: 600
+    login:
+      max-requests: 100000
+      window-seconds: 60
+    refresh:
+      max-requests: 100000
+      window-seconds: 60
+  cors:
+    allowed-origins: ""
+
+logging:
+  level:
+    root: WARN
+    com.actionloop: WARN
+    org.springframework: WARN
+    org.hibernate: WARN

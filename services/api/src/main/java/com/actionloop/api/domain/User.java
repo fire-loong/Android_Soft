@@ -1,0 +1,42 @@
+package com.actionloop.api.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.SQLRestriction;
+
+@Entity
+@Table(name = "users")
+@Getter
+@Setter
+@NoArgsConstructor
+@SQLRestriction("deleted_at IS NULL")
+public class User extends VersionedAggregate {
+
+    @Column(nullable = false)
+    private String email;
+
+    @Column(nullable = false)
+    private String username;
+
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
+
+    @Column(name = "display_name")
+    private String displayName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private UserStatus status = UserStatus.ACTIVE;
+
+    @Column(nullable = false)
+    private String timezone = "Asia/Shanghai";
+
+    @Column(nullable = false)
+    private String locale = "zh-CN";
+}

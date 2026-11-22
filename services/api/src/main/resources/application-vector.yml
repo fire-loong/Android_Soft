@@ -1,0 +1,5 @@
+# 仅在确认已安装 pgvector 后启用：--spring.profiles.active=vector
+# 启用后 Flyway 会追加执行 db/migration-vector 下的迁移，为 search_documents 增加 embedding 向量列与 HNSW 索引。
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-vector

@@ -1,0 +1,50 @@
+server:
+  port: ${ACTIONLOOP_WORKER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: actionloop-worker
+  datasource:
+    url: jdbc:postgresql://${ACTIONLOOP_DB_HOST:127.0.0.1}:${ACTIONLOOP_DB_PORT:5432}/${ACTIONLOOP_DB_NAME:actionloop}
+    username: ${ACTIONLOOP_DB_USER:postgres}
+    password: ${ACTIONLOOP_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: false   # 迁移由 API 进程负责，worker 不并发执行迁移
+  data:
+    redis:
+      host: ${ACTIONLOOP_REDIS_HOST:127.0.0.1}
+      port: ${ACTIONLOOP_REDIS_PORT:6379}
+      password: ${ACTIONLOOP_REDIS_PASSWORD:}
+      timeout: 3000ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+app:
+  worker:
+    lease-owner: ${HOSTNAME:worker-local}
+
+logging:
+  level:
+    root: INFO
+    com.actionloop: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] %logger{36} - %msg%n"

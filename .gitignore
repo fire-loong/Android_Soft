@@ -1,0 +1,68 @@
+# ---- Dependencies ----
+node_modules/
+.pnpm-store/
+**/target/
+**/build/
+**/.gradle/
+**/dist/
+**/dist-ssr/
+**/*.tsbuildinfo
+
+# ---- Rust / Tauri ----
+**/target/
+apps/desktop/src-tauri/target/
+
+# ---- Android ----
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/app/build/
+apps/android/app/release/
+apps/android/*/build/
+apps/android/captures/
+apps/android/.cxx/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# ---- Secrets & local config (never commit) ----
+.env
+.env.local
+.env.*.local
+*.local
+local/
+**/application-local.yml
+**/application-local.yaml
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+keystore.properties
+
+# ---- OCR / model weights (large, tracked by hash registry only) ----
+ai/models/*.onnx
+ai/models/*.bin
+ai/models/*.safetensors
+
+# ---- Dev infra binaries / data (user-local) ----
+.dev-infra/
+*.log
+
+# ---- IDE / OS ----
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# ---- Test / coverage ----
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# ---- Generated clients (CI regenerates) ----
+packages/api-client-ts/src/generated/

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  只读无障碍服务配置（指导书 8.2 / 8.5 / 安全边界）。
+  关键：canPerformGestures 必须为 false；本服务只读取节点文本与边界，
+  绝不调用 performAction / dispatchGesture / performGlobalAction 代替用户操作。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:canRequestEnhancedWebAccessibility="false"
+    android:canRequestFilterKeyEvents="false"
+    android:description="@string/accessibility_service_desc"
+    android:notificationTimeout="250"
+    android:settingsActivity="com.actionloop.android.MainActivity" />
