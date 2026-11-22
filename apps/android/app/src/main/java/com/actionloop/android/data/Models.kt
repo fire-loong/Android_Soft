@@ -265,3 +265,52 @@ data class SourceView(
 
 @Serializable
 data class DismissReq(val baseVersion: Int, val reason: String? = null)
+
+// ---- 跨 App 引导 / 远程协助（后端 AssistController） ----
+@Serializable
+data class AssistSessionView(
+    val id: String,
+    val requesterId: String,
+    val helperId: String? = null,
+    val taskStepId: String? = null,
+    val mode: String,
+    val state: String,
+    val scopesJson: String? = null,
+    val expiresAt: String? = null,
+    val stoppedReason: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class AssistEventView(
+    val sessionId: String,
+    val seq: Long,
+    val eventType: String,
+    val payloadJson: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class CreateAssistSessionReq(
+    val workspaceId: String,
+    val taskStepId: String? = null,
+    val helperId: String? = null,
+    val mode: String = "REMOTE_ASSIST",
+    val scopes: List<String> = listOf("VIEW_SCREEN", "HIGHLIGHT", "TEXT_HINT"),
+    val expiresMinutes: Int = 15
+)
+
+@Serializable
+data class AssistSignalReq(
+    val eventType: String,
+    val payload: JsonObject
+)
+
+@Serializable
+data class AssistTurnCredentials(
+    val urls: List<String> = emptyList(),
+    val username: String? = null,
+    val credential: String? = null,
+    val ttlSeconds: Long = 0,
+    val expiresAt: String? = null
+)

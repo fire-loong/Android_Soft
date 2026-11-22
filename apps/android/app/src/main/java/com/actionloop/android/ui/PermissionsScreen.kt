@@ -2,6 +2,8 @@ package com.actionloop.android.ui
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -33,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,8 +52,11 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.actionloop.android.assist.AssistSignalClient
 import com.actionloop.android.assist.GuidanceRuntime
 import com.actionloop.android.assist.ScreenCaptureService
+import com.actionloop.android.data.AssistSessionView
+import com.actionloop.android.data.Session
 import com.actionloop.android.notifications.AllowlistStore
 import com.actionloop.android.notifications.ReminderScheduler
 import com.actionloop.android.work.SyncWorker
@@ -78,12 +84,42 @@ fun PermissionsScreen(onBack: () -> Unit) {
     var overlayGranted by remember { mutableStateOf(GuidanceRuntime.canDrawOverlays(context)) }
     var a11yEnabled by remember { mutableStateOf(GuidanceRuntime.isAccessibilityEnabled(context)) }
     var sessionActive by remember { mutableStateOf(false) }
+    var assistSession by remember { mutableStateOf(AssistSignalClient.current()) }
+    var assistBusy by remember { mutableStateOf(false) }
     val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             ScreenCaptureService.start(context, result.resultCode, result.data!!)
         } else {
             Toast.makeText(context, "未授权屏幕采集，引导未启动", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** 发起远程求助：创建开放邀请会话；只读标注，不建立任何控制通道。 */
+    fun startAssist() {
+        val ws = Session.currentWorkspaceId
+        if (ws == null) {
+            Toast.makeText(context, "请先选择工作空间后再发起求助", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (assistBusy) return
+        assistBusy = true
+        scope.launch {
+            runCatching { AssistSignalClient.start(context, ws) }
+                .onSuccess { s ->
+                    assistSession = s
+                    Toast.makeText(context, "求助已发起，邀请码已生成", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { e ->
+                    Toast.makeText(context, "发起失败：${e.message ?: "网络错误"}", Toast.LENGTH_LONG).show()
+                }
+            assistBusy = false
+        }
+    }
+
+    // 悬浮层“求助”按钮直接进入发起流程（本页在前台时），离开页面恢复默认拉起 App 行为。
+    DisposableEffect(Unit) {
+        GuidanceRuntime.helpHandler = { scope.launch { startAssist() } }
+        onDispose { GuidanceRuntime.helpHandler = null }
     }
 
     LaunchedEffect(Unit) {
@@ -96,6 +132,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
             overlayGranted = GuidanceRuntime.canDrawOverlays(context)
             a11yEnabled = GuidanceRuntime.isAccessibilityEnabled(context)
             sessionActive = runCatching { GuidanceRuntime.overlay?.isShown() == true }.getOrDefault(false)
+            assistSession = AssistSignalClient.current()
             delay(1000)
         }
     }
@@ -226,6 +263,39 @@ fun PermissionsScreen(onBack: () -> Unit) {
                             }
                         ) { Text("启动一次引导") }
                         Button(onClick = { ScreenCaptureService.stop(context) }) { Text("停止引导") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            enabled = !assistBusy && assistSession == null,
+                            onClick = { startAssist() }
+                        ) { Text(if (assistBusy) "发起中…" else "发起远程求助") }
+                        assistSession?.let { s ->
+                            Button(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("ActionLoop 协助邀请", s.id))
+                                Toast.makeText(context, "邀请码已复制", Toast.LENGTH_SHORT).show()
+                            }) { Text("复制邀请码") }
+                            Button(onClick = {
+                                scope.launch {
+                                    assistBusy = true
+                                    AssistSignalClient.stop(context, "user_permissions")
+                                    assistSession = null
+                                    assistBusy = false
+                                    Toast.makeText(context, "已停止远程求助", Toast.LENGTH_SHORT).show()
+                                }
+                            }) { Text("停止求助") }
+                        }
+                    }
+                    assistSession?.let { s ->
+                        Spacer(Modifier.height(6.dp))
+                        Text("邀请码：${s.id}", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "状态：${s.state} · 协助者在 Web 协助台接受后，只能发送高亮/指针/文字提示；" +
+                                "本机只上报当前帧标识（frameId），不上传画面、控件文本或输入内容。" +
+                                "请先启动一次引导并授权屏幕采集，协助者才有当前帧可标注。",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
@@ -45,12 +45,15 @@ const EVENT_OPTIONS = [
 
 const EVENT_TEMPLATE: Record<string, string> = {
   TEXT_HINT: '{"text":"请点击屏幕上被高亮的按钮"}',
-  HIGHLIGHT: '{"x":0.5,"y":0.4,"w":0.3,"h":0.12,"label":"下一步点这里"}',
-  POINTER: '{"x":0.5,"y":0.5,"label":"看这里"}',
+  HIGHLIGHT: '{"bounds":{"x":0.5,"y":0.4,"width":0.3,"height":0.12},"label":"下一步点这里"}',
+  POINTER: '{"bounds":{"x":0.5,"y":0.5,"width":0.02,"height":0.02},"label":"看这里"}',
   HIGHLIGHT_CLEAR: '{}',
   PAUSE: '{}',
   RESUME: '{}'
 }
+
+/** 必须绑定当前帧的只读标注类型（指导书 8.7）。 */
+const FRAME_BOUND_EVENTS = new Set(['HIGHLIGHT', 'POINTER', 'TEXT_HINT'])
 
 export default function Assist() {
   const queryClient = useQueryClient()
@@ -82,6 +85,27 @@ export default function Assist() {
     enabled: !!selectedId,
     refetchInterval: 2_000
   })
+
+  // Android 请求方通过 META 上报当前帧标识（不含画面）；标注必须绑定 10 秒内的新鲜帧。
+  const latestMeta = useMemo(() => {
+    const metas = (eventsQuery.data ?? []).filter((e) => e.eventType === 'META')
+    if (metas.length === 0) return null
+    const last = metas[metas.length - 1]
+    const created = last.createdAt ? Date.parse(last.createdAt) : NaN
+    if (Number.isFinite(created) && Date.now() - created > 10_000) return null
+    return last
+  }, [eventsQuery.data])
+  const latestFrameId = useMemo(() => {
+    if (!latestMeta?.payloadJson) return null
+    try {
+      const parsed = JSON.parse(latestMeta.payloadJson) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+      const frameId = (parsed as { frameId?: unknown }).frameId
+      return typeof frameId === 'string' && frameId.length > 0 ? frameId : null
+    } catch {
+      return null
+    }
+  }, [latestMeta])
 
   const createMut = useMutation({
     mutationFn: (v: { mode: string; scopes: string[]; expiresMinutes: number; helperId?: string; taskStepId?: string }) =>
@@ -117,7 +141,35 @@ export default function Assist() {
 
   const signalMut = useMutation({
     mutationFn: (v: { eventType: string; payload: string }) => {
-      const parsed = JSON.parse(v.payload || '{}') as Record<string, unknown>
+      const raw = JSON.parse(v.payload || '{}') as unknown
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('负载必须是 JSON 对象')
+      }
+      const parsed = raw as Record<string, unknown>
+      if (FRAME_BOUND_EVENTS.has(v.eventType)) {
+        if (!latestFrameId) {
+          throw new Error('尚未收到对方当前帧（frameId），不能标注；请确认对方已发起求助并开启只读无障碍')
+        }
+        parsed.frameId = latestFrameId
+      }
+      if (v.eventType === 'HIGHLIGHT' || v.eventType === 'POINTER') {
+        // 兼容旧模板的 x/y/w/h，统一转成 Android 的 bounds{width,height}。
+        if (!parsed.bounds && typeof parsed.x === 'number') {
+          parsed.bounds = {
+            x: parsed.x,
+            y: parsed.y,
+            width: parsed.w ?? 0.02,
+            height: parsed.h ?? 0.02
+          }
+          delete parsed.x
+          delete parsed.y
+          delete parsed.w
+          delete parsed.h
+        }
+        if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= Date.now()) {
+          parsed.expiresAt = Date.now() + 60_000
+        }
+      }
       return assistApi.signal(selectedId!, v.eventType, parsed)
     },
     onSuccess: () => {
@@ -271,6 +323,17 @@ export default function Assist() {
                     {formatDateTime(session.expiresAt)}
                   </Descriptions.Item>
                 </Descriptions>
+
+                <Alert
+                  type={latestFrameId ? 'success' : 'warning'}
+                  showIcon
+                  message={
+                    latestFrameId
+                      ? `请求方当前帧：${latestFrameId.slice(0, 8)}…`
+                      : '尚未收到请求方当前帧标识'
+                  }
+                  description="Android 端只上报 frameId / pageHash，不上传画面或控件文本。高亮、指针、文字提示都必须绑定该帧；换帧后旧标注会被本机丢弃。"
+                />
 
                 <Alert
                   type="warning"

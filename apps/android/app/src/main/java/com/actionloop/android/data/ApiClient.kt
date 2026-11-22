@@ -186,4 +186,22 @@ object ApiClient {
     // ---- Source ----
     suspend fun shareSource(req: ShareSourceReq): SourceView =
         call("POST", "/sources/share", json.encodeToString(req))
+
+    // ---- Assist（跨 App 引导 / 远程协助，只读信令） ----
+    suspend fun createAssistSession(workspaceId: String, taskStepId: String? = null): AssistSessionView =
+        call("POST", "/assist/sessions", json.encodeToString(CreateAssistSessionReq(workspaceId, taskStepId = taskStepId)))
+
+    suspend fun assistEvents(sessionId: String, afterSeq: Long): List<AssistEventView> =
+        call("GET", "/assist/sessions/$sessionId/events", params = mapOf("afterSeq" to afterSeq.toString()))
+
+    suspend fun assistMine(): List<AssistSessionView> = call("GET", "/assist/sessions")
+
+    suspend fun assistSignal(sessionId: String, eventType: String, payload: kotlinx.serialization.json.JsonObject): AssistEventView =
+        call("POST", "/assist/sessions/$sessionId/signal", json.encodeToString(AssistSignalReq(eventType, payload)))
+
+    suspend fun assistStop(sessionId: String, reason: String): AssistSessionView =
+        call("POST", "/assist/sessions/$sessionId/stop", json.encodeToString(mapOf("reason" to reason)))
+
+    suspend fun assistTurnCredentials(sessionId: String): AssistTurnCredentials =
+        call("POST", "/assist/sessions/$sessionId/turn-credentials")
 }

@@ -170,11 +170,12 @@ public class AssistService {
         if (!AssistScopes.isAllowedEvent(eventType)) {
             throw new BusinessException(ErrorCode.ASSIST_SCOPE_DENIED, "未知信令类型：" + eventType);
         }
-        validatePayload(req.payload());
+        // 先按字节限长再逐字段校验：避免超大 map 在守卫阶段做无界遍历。
         String payloadJson = toJson(req.payload());
         if (payloadJson.getBytes(StandardCharsets.UTF_8).length > MAX_PAYLOAD_BYTES) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "信令负载过大");
         }
+        validatePayload(req.payload());
         if ("PAUSE".equals(eventType)) {
             session.setState(AssistSessionState.PAUSED);
         } else if ("RESUME".equals(eventType)) {
@@ -299,47 +300,8 @@ public class AssistService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "协助会话不存在"));
     }
 
-    @SuppressWarnings("unchecked")
     private void validatePayload(Map<String, Object> payload) {
-        if (payload == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "信令负载不能为空");
-        }
-        validateNode(payload, 0);
-    }
-
-    private void validateNode(Object node, int depth) {
-        if (depth > 6) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "信令负载嵌套过深");
-        }
-        if (node instanceof Map<?, ?> map) {
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                String key = String.valueOf(entry.getKey()).toLowerCase(Locale.ROOT);
-                if (key.contains("frame") || key.contains("image") || key.contains("screenshot")
-                        || key.contains("base64") || key.contains("dataurl") || key.equals("pixels")) {
-                    throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                            "信令不得携带原始屏幕帧或图片数据");
-                }
-                validateNode(entry.getValue(), depth + 1);
-            }
-        } else if (node instanceof List<?> list) {
-            if (list.size() > 200) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "信令数组过大");
-            }
-            for (Object item : list) {
-                validateNode(item, depth + 1);
-            }
-        } else if (node instanceof String value) {
-            // 防止把图片/屏幕帧塞进任意合法键（如 annotation）后落库
-            if (value.length() > 2000) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "信令文本过长");
-            }
-            String lower = value.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("data:") || lower.contains("base64,")
-                    || (value.length() > 256 && value.matches("^[A-Za-z0-9+/=\\s]+$"))) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "信令不得携带原始屏幕帧或图片数据");
-            }
-        }
+        AssistPayloadGuard.validate(payload);
     }
 
     private String toJson(Object value) {

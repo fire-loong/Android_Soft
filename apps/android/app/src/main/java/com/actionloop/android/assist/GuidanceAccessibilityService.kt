@@ -25,6 +25,9 @@ class GuidanceAccessibilityService : AccessibilityService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var lastPushMs = 0L
+    /** 页面指纹与帧标识：页面静止时复用同一 frameId，任何结构/边界变化才换帧。 */
+    private var lastPageFingerprint: String? = null
+    private var lastFrameId: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -54,19 +57,33 @@ class GuidanceAccessibilityService : AccessibilityService() {
         val packageName = root.packageName?.toString()
             ?: event?.packageName?.toString().orEmpty()
         if (packageName.isBlank()) return
-        // 页面哈希只含结构信息（包名/控件 id/文本/尺寸/旋转），不含屏幕位图。
-        val pageHash = buildString {
+        // 页面指纹只含结构信息（包名/控件 id/文本/尺寸/旋转/边界），不含屏幕位图。
+        // 边界参与指纹：控件移动/滚动会改变指纹 → 生成新 frameId，旧标注自动失效。
+        val fingerprint = buildString {
             append(packageName).append('|')
                 .append(dm.widthPixels).append('x').append(dm.heightPixels).append('|')
                 .append(resources.configuration.orientation)
             normalized.forEach { b ->
                 append('|').append(b.viewId ?: "-").append(':').append(b.text)
+                    .append('@').append((b.bounds.x * 1000).toInt())
+                    .append(',').append((b.bounds.y * 1000).toInt())
+                    .append(',').append((b.bounds.width * 1000).toInt())
+                    .append(',').append((b.bounds.height * 1000).toInt())
             }
-        }.hashCode().toString()
+        }
+        val pageHash = fingerprint.hashCode().toString()
+        // 页面静止时复用 frameId：避免每个无障碍事件都换帧导致远程标注永远“过期”；
+        // 任何文本/边界/尺寸/旋转变化都会生成新 frameId 并使旧标注失效。
+        val frameId = if (fingerprint == lastPageFingerprint && lastFrameId != null) {
+            lastFrameId!!
+        } else {
+            java.util.UUID.randomUUID().toString()
+        }
+        lastPageFingerprint = fingerprint
+        lastFrameId = frameId
         val kg = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
         val frame = GuidanceFrame(
-            // 每次采集生成新的帧标识：远程标注必须回传当前值，旧帧标注会被丢弃（8.7）。
-            frameId = java.util.UUID.randomUUID().toString(),
+            frameId = frameId,
             packageName = packageName,
             pageHash = pageHash,
             timestampMs = System.currentTimeMillis(),
@@ -84,6 +101,8 @@ class GuidanceAccessibilityService : AccessibilityService() {
         scope.launch {
             m.onFrame(frame)
             GuidanceRuntime.render(this@GuidanceAccessibilityService)
+            // 只发布 frameId/pageHash，不含画面与控件文本；未发起协助会话时为空操作。
+            AssistSignalClient.publishFrame(this@GuidanceAccessibilityService, frame)
         }
     }
 
