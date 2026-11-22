@@ -77,7 +77,8 @@ class GuidanceSessionManagerTest {
         manager.onFrame(normalFrame)
         assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
         assertNull(manager.snapshot().highlight)
-        assertFalse(manager.isCollecting())
+        // 文字降级后仍继续读页面，以便页面变化后重新对齐（8.4）
+        assertTrue(manager.isCollecting())
     }
 
     @Test
@@ -202,14 +203,20 @@ class GuidanceSessionManagerTest {
     }
 
     @Test
+    fun `缺失过期时间的高亮被拒绝`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        // 13.5：HIGHLIGHT 必须含 expiresAt，缺失即拒，避免标注永久驻留。
+        assertFalse(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(expiresAt = null)))
+        assertNull(manager.snapshot().highlight)
+    }
+
+    @Test
     fun `过期高亮在读取快照时被丢弃`() = runBlocking {
         manager.start(); manager.consentGranted()
-        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload(expiresAt = null)))
-        assertNotNull(manager.snapshot().highlight)
-        // 无过期时间的高亮常驻；带过期时间的在到期后必须被丢弃（8.7）。
-        val expiring = highlightPayload(expiresAt = System.currentTimeMillis() + 60)
+        val expiring = highlightPayload(expiresAt = System.currentTimeMillis() + 300)
         assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", expiring))
-        Thread.sleep(120)
+        assertNotNull(manager.snapshot().highlight)
+        Thread.sleep(500)
         assertNull(manager.snapshot().highlight)
         assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "HIGHLIGHT_EXPIRED" })
     }
@@ -238,5 +245,22 @@ class GuidanceSessionManagerTest {
         manager.start()
         manager.stop("user_cancel")
         assertEquals(GuidanceSessionState.STOPPED, manager.snapshot().state)
+    }
+
+    @Test
+    fun `未暂停时用户恢复不会激活会话`() = runBlocking {
+        manager.userResume()
+        assertEquals(GuidanceSessionState.IDLE, manager.snapshot().state)
+        manager.start()
+        manager.userResume() // CONSENT_PENDING 不是 PAUSED，不得跳过授权直接 ACTIVE
+        assertEquals(GuidanceSessionState.CONSENT_PENDING, manager.snapshot().state)
+    }
+
+    @Test
+    fun `重复发起会重置上一轮会话而非继承授权`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        assertEquals(GuidanceSessionState.ACTIVE, manager.snapshot().state)
+        manager.start()
+        assertEquals(GuidanceSessionState.CONSENT_PENDING, manager.snapshot().state)
     }
 }

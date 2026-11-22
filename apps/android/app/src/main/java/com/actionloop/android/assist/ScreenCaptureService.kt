@@ -170,11 +170,18 @@ class ScreenCaptureService : Service() {
             }
         }, handler)
 
-        val display = projection.createVirtualDisplay(
-            "actionloop-guide", width, height, dm.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface, null, handler
-        )
+        val display = runCatching {
+            projection.createVirtualDisplay(
+                "actionloop-guide", width, height, dm.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface, null, handler
+            )
+        }.getOrNull()
+        if (display == null) {
+            // 投影可能已被用户撤销/被并发 teardown 停掉：按失败安全停止，不抛到主线程。
+            stopCapture("display_failed")
+            return
+        }
         val accepted = synchronized(resourceLock) {
             if (mediaProjection === projection) {
                 virtualDisplay = display

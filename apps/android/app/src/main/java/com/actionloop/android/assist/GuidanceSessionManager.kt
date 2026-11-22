@@ -71,7 +71,10 @@ class GuidanceSessionManager(private val context: Context) {
     /** 无障碍采集门控（无锁读 volatile 状态，仅用于“是否采集”粗粒度判断）。 */
     fun isCollecting(): Boolean = state in setOf(
         GuidanceSessionState.CONSENT_PENDING, GuidanceSessionState.ACTIVE,
-        GuidanceSessionState.ALIGNING, GuidanceSessionState.HIGHLIGHTING, GuidanceSessionState.WAITING_USER
+        GuidanceSessionState.ALIGNING, GuidanceSessionState.HIGHLIGHTING,
+        GuidanceSessionState.WAITING_USER,
+        // 文字降级后仍需继续读页面，否则无法在页面变化后重新对齐（8.4）。
+        GuidanceSessionState.TEXT_ONLY
     )
 
     /**
@@ -102,9 +105,9 @@ class GuidanceSessionManager(private val context: Context) {
         highlight = null; pointer = null; textHint = null; currentFrame = null
     }
 
-    /** 发起引导：IDLE → CONSENT_PENDING；若为终态，先重置再发起（终态不可直接迁出）。 */
+    /** 发起引导：任何状态都先重置为 IDLE，再进入 CONSENT_PENDING（新会话不得继承上一轮授权）。 */
     suspend fun start() = mutex.withLock {
-        if (state.isTerminal()) resetLocked()
+        if (state != GuidanceSessionState.CONSENT_PENDING) resetLocked()
         setStateLocked(GuidanceSessionState.CONSENT_PENDING)
     }
 
@@ -222,12 +225,15 @@ class GuidanceSessionManager(private val context: Context) {
         if (captureSecureUntilMs > monoNow()) return false
         val bounds = parseBounds(payload["bounds"]) ?: return false
         if (!bounds.isValid()) return false
-        val expiresAt = parseEpochMs(payload["expiresAt"])
-        if (expiresAt != null && expiresAt < System.currentTimeMillis()) return false
+        // 13.5：HIGHLIGHT 必须携带 expiresAt；缺失即拒，避免远端标注永久驻留。
+        val expiresAt = parseEpochMs(payload["expiresAt"]) ?: return false
+        val now = System.currentTimeMillis()
+        if (expiresAt <= now) return false
         highlight = ActiveHighlight(
             bounds = bounds,
             frameId = payload["frameId"]?.toString(),
-            expiresAtMs = expiresAt ?: Long.MAX_VALUE,
+            // 上限封顶：远端传一个很远的未来时间也不能让标注长期停留（8.4 页面变化即失效）。
+            expiresAtMs = minOf(expiresAt, now + MAX_HIGHLIGHT_TTL_MS),
             label = payload["label"]?.toString()?.take(120)
         )
         if (state == GuidanceSessionState.ALIGNING || state == GuidanceSessionState.ACTIVE) {
@@ -246,8 +252,9 @@ class GuidanceSessionManager(private val context: Context) {
         }
     }
 
-    /** 用户主动恢复：PAUSED → CONSENT_PENDING → ACTIVE（用户点击即视为再次同意，8.3）。 */
+    /** 用户主动恢复：仅 PAUSED 可恢复，且必须经 CONSENT_PENDING（用户点击即视为再次同意，8.3）。 */
     suspend fun userResume() = mutex.withLock {
+        if (state != GuidanceSessionState.PAUSED) return@withLock
         setStateLocked(GuidanceSessionState.CONSENT_PENDING)
         setStateLocked(GuidanceSessionState.ACTIVE)
     }
@@ -304,5 +311,8 @@ class GuidanceSessionManager(private val context: Context) {
     companion object {
         /** 采集侧报告 FLAG_SECURE 后的敏感窗口：采集节流约 400ms，留足余量避免单帧漏判。 */
         private const val CAPTURE_SECURE_WINDOW_MS = 1500L
+
+        /** 远程标注最大存活时间：即使对端给出很远的 expiresAt，也不允许标注长期停留在已变化的页面上。 */
+        private const val MAX_HIGHLIGHT_TTL_MS = 5 * 60 * 1000L
     }
 }
