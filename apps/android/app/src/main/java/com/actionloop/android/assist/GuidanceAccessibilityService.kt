@@ -35,8 +35,9 @@ class GuidanceAccessibilityService : AccessibilityService() {
         val m = GuidanceRuntime.manager(this)
         // 非活跃会话不采集，减少无关读取。
         if (!m.isCollecting()) return
-        val now = System.currentTimeMillis()
-        if (now - lastPushMs < 350) return
+        // 限流使用单调时钟：墙钟回拨会让采集长期停摆，敏感页判定停留在旧页面。
+        val nowMono = android.os.SystemClock.elapsedRealtime()
+        if (nowMono - lastPushMs < 350) return
         val root = rootInActiveWindow ?: return
         val blocks = ArrayList<GuidanceFrame.TextBlock>(64)
         collectNodes(root, blocks, 64, 0)
@@ -52,13 +53,13 @@ class GuidanceAccessibilityService : AccessibilityService() {
         val frame = GuidanceFrame(
             packageName = packageName,
             pageHash = pageHash,
-            timestampMs = now,
+            timestampMs = System.currentTimeMillis(),
             textBlocks = normalized,
             isSecure = false, // FLAG_SECURE 由采集侧/窗口标志判定，无障碍无法可靠获取
             isLocked = runCatching { kg.isKeyguardLocked }.getOrDefault(false),
             allowlistedPackage = ALLOWED_PACKAGES.contains(packageName)
         )
-        lastPushMs = now
+        lastPushMs = nowMono
         scope.launch {
             m.onFrame(frame)
             GuidanceRuntime.render(this@GuidanceAccessibilityService)

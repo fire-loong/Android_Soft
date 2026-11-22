@@ -39,6 +39,16 @@ object SensitivePageDetector {
         return Result(false, null)
     }
 
-    private fun looksLikePassword(text: String): Boolean =
-        text.length <= 2 && text.any { it == '•' || it == '●' || it == '*' }
+    /** 掩码占位字符：整段文本只由这些字符组成时，视为已遮蔽的密码/验证码输入。 */
+    private val MASK_CHARS = setOf('•', '●', '*', '＊', '·')
+
+    /**
+     * 已遮蔽输入判定：部分 App 的自定义密码/验证码框不设置 isPassword 标志，
+     * 只把内容渲染成掩码符号。此类页面必须判为敏感（误报只会降级为文字步骤，不产生越权）。
+     */
+    private fun looksLikePassword(text: String): Boolean {
+        // 去掉空格等分隔符：部分 App 会把掩码渲染成 "• • • •"。
+        val compact = text.filterNot { it.isWhitespace() }
+        return compact.isNotEmpty() && compact.all { it in MASK_CHARS }
+    }
 }

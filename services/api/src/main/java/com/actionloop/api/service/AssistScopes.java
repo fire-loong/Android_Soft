@@ -14,14 +14,23 @@ public final class AssistScopes {
 
     public static final Set<String> ALLOWED_EVENTS = Set.of(
             "OFFER", "ANSWER", "ICE_CANDIDATE", "HIGHLIGHT", "HIGHLIGHT_CLEAR",
-            "POINTER", "TEXT_HINT", "PAUSE", "RESUME", "STOP", "META");
+            "POINTER", "TEXT_HINT", "PAUSE", "RESUME", "RESUME_REQUEST",
+            "STOP", "HEARTBEAT", "QUALITY", "META");
 
-    /** 即使大小写混写也拒绝；这些能力在本产品中永久不存在。 */
+    /**
+     * 即使大小写混写、加连字符/下划线/空格也必须判为禁止；这些能力在本产品中永久不存在。
+     * 集合内保存的是「已剥离分隔符并大写」的规范形式，匹配前统一 normalize，避免
+     * COMMIT-PAYMENT / commit_payment 逃逸为“未知事件”而绕过禁止类安全审计。
+     */
     private static final Set<String> FORBIDDEN_EVENTS = Set.of(
-            "CLICK", "TAP", "SWIPE", "SCROLL", "INPUT", "TYPE", "KEYEVENT", "KEY_EVENT",
-            "COMMIT_PAYMENT", "PAYMENT", "DISPATCH_GESTURE", "PERFORM_ACTION", "CONTROL", "REMOTE_CONTROL");
+            "CLICK", "TAP", "SWIPE", "SCROLL", "INPUT", "TYPE", "KEYEVENT",
+            "COMMITPAYMENT", "PAYMENT", "DISPATCHGESTURE", "PERFORMACTION", "CONTROL", "REMOTECONTROL");
 
     private AssistScopes() {
+    }
+
+    private static String normalize(String eventType) {
+        return eventType.toUpperCase(Locale.ROOT).replace("-", "").replace("_", "").replace(" ", "");
     }
 
     public static boolean isAllowedScope(String scope) {
@@ -32,8 +41,7 @@ public final class AssistScopes {
         if (eventType == null) {
             return true;
         }
-        String normalized = eventType.toUpperCase(Locale.ROOT).replace("-", "").replace(" ", "");
-        return FORBIDDEN_EVENTS.contains(normalized);
+        return FORBIDDEN_EVENTS.contains(normalize(eventType));
     }
 
     public static boolean isAllowedEvent(String eventType) {

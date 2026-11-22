@@ -13,16 +13,22 @@ import java.util.Locale
  */
 object AssistMessageGuard {
 
-    /** 与后端 ALLOWED_EVENTS 完全一致。 */
+    /** 与后端 ALLOWED_EVENTS 完全一致（含指导书 13.5 的 RESUME_REQUEST/HEARTBEAT/QUALITY）。 */
     val ALLOWED_EVENTS: Set<String> = setOf(
         "OFFER", "ANSWER", "ICE_CANDIDATE", "HIGHLIGHT", "HIGHLIGHT_CLEAR",
-        "POINTER", "TEXT_HINT", "PAUSE", "RESUME", "STOP", "META"
+        "POINTER", "TEXT_HINT", "PAUSE", "RESUME", "RESUME_REQUEST",
+        "STOP", "HEARTBEAT", "QUALITY", "META"
     )
 
-    /** 与后端 FORBIDDEN_EVENTS 完全一致；这些能力在本产品中永久不存在。 */
-    private val FORBIDDEN_EVENTS: Set<String> = setOf(
-        "CLICK", "TAP", "SWIPE", "SCROLL", "INPUT", "TYPE", "KEYEVENT", "KEY_EVENT",
-        "COMMIT_PAYMENT", "PAYMENT", "DISPATCH_GESTURE", "PERFORM_ACTION", "CONTROL", "REMOTE_CONTROL"
+    /**
+     * 与后端 FORBIDDEN_EVENTS 完全一致；这些能力在本产品中永久不存在。
+     * 集合内是「剥离分隔符并大写」的规范形式，匹配前统一 normalize，
+     * 使 COMMIT-PAYMENT / commit_payment 同样命中禁止类安全审计，而不是降级成“未知事件”。
+     * internal 而非 private：契约单测需要双向比对集合内容（缺项、多项都必须失败）。
+     */
+    internal val FORBIDDEN_EVENTS: Set<String> = setOf(
+        "CLICK", "TAP", "SWIPE", "SCROLL", "INPUT", "TYPE", "KEYEVENT",
+        "COMMITPAYMENT", "PAYMENT", "DISPATCHGESTURE", "PERFORMACTION", "CONTROL", "REMOTECONTROL"
     )
 
     sealed class Result {
@@ -34,7 +40,7 @@ object AssistMessageGuard {
     }
 
     fun normalize(eventType: String?): String =
-        (eventType ?: "").uppercase(Locale.ROOT).replace("-", "").replace(" ", "")
+        (eventType ?: "").uppercase(Locale.ROOT).replace("-", "").replace("_", "").replace(" ", "")
 
     /** 与后端 AssistScopes.isForbiddenEvent 逐字对齐：null 视为禁止。 */
     fun isForbidden(eventType: String?): Boolean {

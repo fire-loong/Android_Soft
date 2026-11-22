@@ -52,7 +52,18 @@ class ScreenCaptureService : Service() {
     private var overlay: GuidanceOverlay? = null
     private var renderJob: Job? = null
 
+    /** 采集节流时间戳，使用单调时钟 [android.os.SystemClock.elapsedRealtime]，不受系统改时间影响。 */
     @Volatile private var lastProcessMs = 0L
+
+    /** 资源句柄的整体摘除锁：采集回调线程与主线程可能并发进入，摘除与释放必须原子分界。 */
+    private val resourceLock = Any()
+
+    private class SessionResources(
+        val display: VirtualDisplay?,
+        val reader: ImageReader?,
+        val projection: MediaProjection?,
+        val overlay: GuidanceOverlay?
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -87,7 +98,14 @@ class ScreenCaptureService : Service() {
             stopCapture("no_overlay_permission")
             return START_NOT_STICKY
         }
-        overlay = GuidanceOverlay(this).also { it.show() }
+        val newOverlay = GuidanceOverlay(this)
+        if (!newOverlay.show()) {
+            stopCapture("overlay_show_failed")
+            return START_NOT_STICKY
+        }
+        // 只在本会话资源整体摘除后挂载，避免旧会话遗留的 teardown 去 hide 新悬浮层。
+        releaseResources(detachResources())
+        synchronized(resourceLock) { overlay = newOverlay }
         scope.launch {
             GuidanceRuntime.manager(this@ScreenCaptureService).start()
             GuidanceRuntime.manager(this@ScreenCaptureService).consentGranted()
@@ -98,16 +116,23 @@ class ScreenCaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun isCurrentProjection(projection: MediaProjection): Boolean =
+        synchronized(resourceLock) { mediaProjection === projection }
+
+    private fun isCurrentReader(reader: ImageReader): Boolean =
+        synchronized(resourceLock) { imageReader === reader }
+
     private fun beginCapture(resultCode: Int, data: Intent) {
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projection = mpm.getMediaProjection(resultCode, data) ?: run {
             stopCapture("projection_null")
             return
         }
-        mediaProjection = projection
+        synchronized(resourceLock) { mediaProjection = projection }
         projection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                stopCapture("user_revoked")
+                // 迟到的旧会话回调不得拆掉新会话：仅当当前投影仍是这一个时才停止。
+                if (isCurrentProjection(projection)) stopCapture("user_revoked")
             }
         }, handler)
 
@@ -116,9 +141,14 @@ class ScreenCaptureService : Service() {
         val width = 720
         val height = (width * dm.heightPixels / dm.widthPixels).coerceAtLeast(480)
         val reader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
-        imageReader = reader
+        synchronized(resourceLock) { imageReader = reader }
         reader.setOnImageAvailableListener({ r ->
-            val now = System.currentTimeMillis()
+            // 旧会话的读帧回调不得影响新会话（例如误判锁屏后停掉新会话）。
+            if (!isCurrentReader(r)) {
+                r.acquireLatestImage()?.close()
+                return@setOnImageAvailableListener
+            }
+            val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastProcessMs < 400) { r.acquireLatestImage()?.close(); return@setOnImageAvailableListener }
             lastProcessMs = now
             val image = r.acquireLatestImage()
@@ -140,11 +170,20 @@ class ScreenCaptureService : Service() {
             }
         }, handler)
 
-        virtualDisplay = projection.createVirtualDisplay(
+        val display = projection.createVirtualDisplay(
             "actionloop-guide", width, height, dm.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             reader.surface, null, handler
         )
+        val accepted = synchronized(resourceLock) {
+            if (mediaProjection === projection) {
+                virtualDisplay = display
+                true
+            } else {
+                false
+            }
+        }
+        if (!accepted) runCatching { display.release() }
     }
 
     private fun startRenderLoop() {
@@ -189,14 +228,29 @@ class ScreenCaptureService : Service() {
         return checked > 0 && nonZero.toDouble() / checked < 0.01
     }
 
+    /**
+     * 原子摘除当前会话的全部资源句柄（置空并返回快照）。
+     * 摘除后任何迟到的旧回调都只会看到 null 或新句柄，不会重复释放同一对象。
+     */
+    private fun detachResources(): SessionResources = synchronized(resourceLock) {
+        val snapshot = SessionResources(virtualDisplay, imageReader, mediaProjection, overlay)
+        virtualDisplay = null; imageReader = null; mediaProjection = null; overlay = null
+        snapshot
+    }
+
+    /** 释放已摘除的资源。逐个 runCatching：系统句柄对重复释放不友好，任何一步失败都不影响其余释放。 */
+    private fun releaseResources(resources: SessionResources) {
+        runCatching { resources.display?.release() }
+        runCatching { resources.reader?.close() }
+        runCatching { resources.projection?.stop() }
+        runCatching { resources.overlay?.hide() }
+    }
+
     /** 释放采集与悬浮层资源（不触发状态机/通知）。供正常停止与 onDestroy 兜底复用，避免异常回收泄漏。 */
     private fun teardown() {
         renderJob?.cancel()
-        runCatching { virtualDisplay?.release() }
-        runCatching { imageReader?.close() }
-        runCatching { mediaProjection?.stop() }
-        virtualDisplay = null; imageReader = null; mediaProjection = null
-        overlay?.hide(); overlay = null
+        renderJob = null
+        releaseResources(detachResources())
     }
 
     private fun stopCapture(reason: String) {
