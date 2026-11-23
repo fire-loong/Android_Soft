@@ -236,6 +236,15 @@ public class SourceService {
         SourceFetchService.Fetched fetched;
         try {
             fetched = sourceFetchService.fetch(source.getLinkUrl());
+        } catch (SourceFetchService.BlockedException blocked) {
+            source.setSourceState(SourceState.FETCH_FAILED);
+            source.setLastCheckedAt(Instant.now());
+            sourceRepository.save(source);
+            auditService.record(userId, workspaceId, AuditAction.SOURCE_FETCH_BLOCKED, "source",
+                    sourceId.toString(), AuditAction.RESULT_DENIED,
+                    Map.of("reason", blocked.reason(),
+                            "detail", blocked.detail() == null ? "" : blocked.detail()));
+            throw blocked;
         } catch (BusinessException be) {
             source.setSourceState(SourceState.FETCH_FAILED);
             source.setLastCheckedAt(Instant.now());

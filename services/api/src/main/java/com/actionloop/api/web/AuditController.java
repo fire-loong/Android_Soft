@@ -7,10 +7,12 @@ import com.actionloop.api.security.UserPrincipal;
 import com.actionloop.api.service.PermissionService;
 import com.actionloop.shared.web.ApiResponse;
 import com.actionloop.shared.web.CursorPage;
+import jakarta.persistence.criteria.Predicate;
 import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /** 审计查询（指导书 15.4 / WP13）：仅 ADMIN+ 可读，追加写不可删改。 */
@@ -51,27 +55,32 @@ public class AuditController {
                                                    @RequestParam UUID workspaceId,
                                                    @RequestParam(required = false) String objectType,
                                                    @RequestParam(required = false) String objectId,
+                                                   @RequestParam(required = false) String action,
+                                                   @RequestParam(required = false) String result,
                                                    @RequestParam(required = false) String cursor,
                                                    @RequestParam(defaultValue = "20") int limit) {
         permissionService.requireAtLeastRole(workspaceId, me.userId(), Role.ADMIN);
         int size = Math.min(Math.max(limit, 1), 100);
         int pageNo = parseCursor(cursor);
         PageRequest pageable = PageRequest.of(pageNo, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<AuditLog> page;
-        boolean hasType = objectType != null && !objectType.isBlank();
-        boolean hasId = objectId != null && !objectId.isBlank();
-        if (hasType && hasId) {
-            page = auditLogRepository.findByWorkspaceIdAndObjectTypeAndObjectIdOrderByCreatedAtDesc(
-                    workspaceId, objectType, objectId, pageable);
-        } else if (hasType) {
-            page = auditLogRepository.findByWorkspaceIdAndObjectTypeOrderByCreatedAtDesc(
-                    workspaceId, objectType, pageable);
-        } else if (hasId) {
-            page = auditLogRepository.findByWorkspaceIdAndObjectIdOrderByCreatedAtDesc(
-                    workspaceId, objectId, pageable);
-        } else {
-            page = auditLogRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId, pageable);
-        }
+        Specification<AuditLog> spec = (root, query, cb) -> {
+            List<Predicate> preds = new ArrayList<>();
+            preds.add(cb.equal(root.get("workspaceId"), workspaceId));
+            if (objectType != null && !objectType.isBlank()) {
+                preds.add(cb.equal(root.get("objectType"), objectType));
+            }
+            if (objectId != null && !objectId.isBlank()) {
+                preds.add(cb.equal(root.get("objectId"), objectId));
+            }
+            if (action != null && !action.isBlank()) {
+                preds.add(cb.equal(root.get("action"), action));
+            }
+            if (result != null && !result.isBlank()) {
+                preds.add(cb.equal(root.get("result"), result));
+            }
+            return cb.and(preds.toArray(new Predicate[0]));
+        };
+        Page<AuditLog> page = auditLogRepository.findAll(spec, pageable);
         return ApiResponse.of(CursorPage.of(page.getContent().stream().map(AuditView::of).toList(),
                 page.hasNext() ? String.valueOf(pageNo + 1) : null, page.hasNext()), reqId());
     }

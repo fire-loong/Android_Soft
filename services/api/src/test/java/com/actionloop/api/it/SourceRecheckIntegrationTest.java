@@ -4,13 +4,16 @@ import com.actionloop.api.service.SourceFetchService;
 import com.actionloop.api.test.AbstractIntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,6 +32,9 @@ class SourceRecheckIntegrationTest extends AbstractIntegrationTest {
 
     @MockBean
     private SourceFetchService sourceFetchService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void recheckDetectsNewVersionWithoutMutatingConfirmedTask() {
@@ -108,6 +114,42 @@ class SourceRecheckIntegrationTest extends AbstractIntegrationTest {
                 token, null, null);
         assertEquals(400, recheck.status, recheck.raw);
         assertEquals("VALIDATION_FAILED", errCode(recheck), "无链接来源复查必须给出可解释的拒绝");
+    }
+
+    @Test
+    void blockedSsrfFetchIsRecordedAsSecurityEvent() {
+        Map<String, String> owner = register();
+        String token = owner.get("access");
+        String ws = createWorkspace(token, unique("SSRF 来源空间"));
+        String link = "https://example.edu/notice/" + System.nanoTime();
+        JsonNode source = shareWithLink(token, ws, link, "请于2027年12月30日18:00前提交助学金申请表");
+        String sourceId = source.path("id").asText();
+
+        when(sourceFetchService.fetch(anyString())).thenThrow(new SourceFetchService.BlockedException(
+                "internal_address", "来源链接指向内网地址，已拒绝", "example.edu -> 10.0.0.1"));
+
+        Resp recheck = req("POST", "/api/v1/sources/" + sourceId + "/recheck?workspaceId=" + ws,
+                token, null, null);
+        assertEquals(400, recheck.status, recheck.raw);
+        assertEquals("VALIDATION_FAILED", errCode(recheck));
+
+        Integer blockedEvents = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM audit_logs
+                 WHERE action = 'source.fetch.blocked' AND object_id = ? AND result = 'DENIED'
+                """, Integer.class, sourceId);
+        assertEquals(1, blockedEvents, "SSRF 拒绝必须写入安全事件审计");
+
+        String metadata = jdbcTemplate.queryForObject("""
+                SELECT metadata::text FROM audit_logs
+                 WHERE action = 'source.fetch.blocked' AND object_id = ?
+                 ORDER BY created_at DESC LIMIT 1
+                """, String.class, sourceId);
+        assertTrue(metadata.contains("internal_address"), metadata);
+        assertTrue(metadata.contains("10.0.0.1"), metadata);
+
+        String state = jdbcTemplate.queryForObject(
+                "SELECT source_state FROM source_items WHERE id = ?", String.class, UUID.fromString(sourceId));
+        assertEquals("FETCH_FAILED", state, "被拒绝的来源不得被标记为可用");
     }
 
     private JsonNode shareWithLink(String token, String ws, String link, String text) {

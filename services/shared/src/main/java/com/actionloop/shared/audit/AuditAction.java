@@ -43,6 +43,8 @@ public final class AuditAction {
     public static final String SOURCE_SHARE = "source.share";
     public static final String SOURCE_DELETE = "source.delete";
     public static final String SOURCE_RECHECK = "source.recheck";
+    /** SSRF 防护拒绝抓取：记录被阻断的内网地址/重定向/协议（指导书 C-04）。 */
+    public static final String SOURCE_FETCH_BLOCKED = "source.fetch.blocked";
     public static final String CANDIDATE_CONFIRM = "candidate.confirm";
     public static final String CANDIDATE_DISMISS = "candidate.dismiss";
     public static final String MEMORY_SEARCH = "memory.search";

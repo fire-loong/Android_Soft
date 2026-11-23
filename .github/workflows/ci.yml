@@ -62,8 +62,32 @@ jobs:
           cache: maven
       - name: Make wrapper executable
         run: chmod +x mvnw
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
       - name: Build & test
-        run: ./mvnw -pl shared,api,worker -am test -B -ntp
+        run: |
+          # 清理旧报告，避免被历史 error/skip 污染统计
+          rm -rf api/target/surefire-reports worker/target/surefire-reports shared/target/surefire-reports
+          ./mvnw -pl shared,api,worker -am test -B -ntp
+      - name: Hard-fail on skipped integration tests
+        run: |
+          python3 -c "
+          import glob, re, sys
+          txts = glob.glob('api/target/surefire-reports/*.txt') + glob.glob('worker/target/surefire-reports/*.txt') + glob.glob('shared/target/surefire-reports/*.txt')
+          total_skip = 0
+          for t in txts:
+              with open(t, encoding='utf-8', errors='ignore') as f:
+                  for line in f:
+                      m = re.search(r'Tests run: (\d+), Failures: (\d+), Errors: (\d+), Skipped: (\d+)', line)
+                      if m:
+                          total_skip += int(m.group(4))
+          # 允许 1 条有明确说明的跳过（HybridSearchIntegrationTest 无 MaaS 凭证时 assumeTrue 跳过）
+          if total_skip > 1:
+              print(f'FAIL: {total_skip} tests skipped (> 1 allowed). Investigate @EnabledIfTestInfra / assumeTrue gaps.')
+              sys.exit(1)
+          print(f'OK: {total_skip} skipped (≤ 1 allowed)')
+          "
       - name: Package executable jar
         run: ./mvnw -pl api package -DskipTests -B -ntp
 

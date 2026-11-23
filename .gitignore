@@ -59,6 +59,16 @@ ai/models/*.safetensors
 .DS_Store
 Thumbs.db
 
+# ---- Local device-verification artifacts (never commit) ----
+/*.png
+/.screenshots/
+/ui*.xml
+/answer.txt
+/probe.sh
+
+# ---- Locally extracted third-party binaries (Maven dependency is authoritative) ----
+/webrtc-aar/
+
 # ---- Test / coverage ----
 coverage/
 .nyc_output/
