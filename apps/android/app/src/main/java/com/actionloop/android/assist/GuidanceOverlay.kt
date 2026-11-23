@@ -176,14 +176,24 @@ class GuidanceOverlay(private val context: Context) {
             }
             setPadding(24, 16, 24, 16)
         }
+        val density = context.resources.displayMetrics.density
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        // 固定状态文字宽度：否则状态文案变长时整条控制条会重排，按钮跳到手指之外；
+        // 敏感页长文案还会把“停止”挤出屏幕（真机复跑发现）。
         val stateText = TextView(context).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             text = "引导：就绪"
-            setPadding(0, 0, 20, 0)
+            setPadding(0, 0, (8 * density).toInt(), 0)
+            width = (screenWidth * 0.30f).toInt()
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val pauseBtn = Button(context).apply {
             text = "暂停"
+            minimumWidth = (56 * density).toInt()
+            minWidth = minimumWidth
+            setPadding((8 * density).toInt(), 0, (8 * density).toInt(), 0)
             setOnClickListener {
                 scope.launch {
                     val m = GuidanceRuntime.manager(context)
@@ -200,10 +210,16 @@ class GuidanceOverlay(private val context: Context) {
         this.pauseButton = pauseBtn
         val helpBtn = Button(context).apply {
             text = "求助"
+            minimumWidth = (56 * density).toInt()
+            minWidth = minimumWidth
+            setPadding((8 * density).toInt(), 0, (8 * density).toInt(), 0)
             setOnClickListener { GuidanceRuntime.requestHelp(context) }
         }
         val stopBtn = Button(context).apply {
             text = "停止"
+            minimumWidth = (56 * density).toInt()
+            minWidth = minimumWidth
+            setPadding((8 * density).toInt(), 0, (8 * density).toInt(), 0)
             setOnClickListener {
                 scope.launch {
                     GuidanceRuntime.manager(context).stop("user_overlay_stop")
