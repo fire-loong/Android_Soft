@@ -38,6 +38,9 @@ public class RuleExtractor {
             "(?:携带|准备|带上|需要提供|所需材料|材料)[：:]?\\s*([^。；;\\n]{2,60})");
     private static final Pattern LOCATION = Pattern.compile(
             "(?:地点|地址)[：:]\\s*([^\\n，。；]{2,40})|在\\s*([\\u4e00-\\u9fa5A-Za-z0-9]{2,20})(?:集合|举行|开展|参加|办理)");
+    /** 动作词之外的常见任务短语（交作业/还书/取件等），避免「有日期但不在 ACTION_WORDS」被误判为闲聊。 */
+    private static final Pattern TASK_VERB_PHRASE = Pattern.compile(
+            "(交|还|取|送|领|办|寄|缴)[^，。；;\\n]{0,8}(作业|材料|表|书|件|费|报告|论文|卡|证|申请|照片|回执)");
 
     private static final Set<String> ACTION_WORDS = Set.of(
             "截止", "提交", "报名", "缴费", "支付", "确认", "打印", "面试", "考试",
@@ -142,9 +145,19 @@ public class RuleExtractor {
         List<String> materials = extractMaterials(text);
         String location = extractLocation(text);
         String nextAction = firstActionSentence(text);
+        // 指导书 A-04：只有日期/时间、没有动作与材料的闲聊不属于待办，
+        // 不得凭日期把置信度抬到提醒阈值之上（避免「今天晚上一起吃饭」生成强提醒）。
+        // 但真实任务可能使用白名单外的动词（交作业/还书），命中短语时仍按任务处理。
+        boolean hasTaskPhrase = TASK_VERB_PHRASE.matcher(text).find();
+        boolean taskLike = containsAction(text) || hasTaskPhrase || !materials.isEmpty() || location != null;
         double confidence = 0.35;
-        if (dateTimes.size() == 1) {
+        if (dateTimes.size() == 1 && taskLike) {
             confidence += anyExplicitTime ? 0.4 : 0.3;
+        }
+        if (dateTimes.size() == 1 && !taskLike) {
+            // 明确标注降级原因，避免用户以为「系统忘了提醒」。
+            reasons.add("POSSIBLE_NON_TASK");
+            warnings.add("仅检测到日期，未识别到明确动作；不生成默认提醒，请确认是否需要");
         }
         if (!materials.isEmpty()) {
             confidence += 0.05;

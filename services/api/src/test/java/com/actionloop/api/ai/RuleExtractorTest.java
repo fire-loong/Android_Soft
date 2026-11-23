@@ -34,4 +34,30 @@ class RuleExtractorTest {
         assertTrue(result.reasons().contains("MULTIPLE_DATES"));
         assertTrue(result.needsUserConfirmation());
     }
+
+    @Test
+    void dateWithCommonTaskPhraseStillCountsAsTask() {
+        // 「交」不在 ACTION_WORDS 中，但「交作业」是真实任务，不得因 A-04 降级而丢失提醒。
+        ExtractionRequest request = new ExtractionRequest("11月30日交作业",
+                Instant.parse("2026-11-22T02:00:00Z"), "Asia/Shanghai", "班级群", null,
+                null, null, null, null);
+
+        CandidateExtraction.CandidateDraft result = new RuleExtractor().extract(request).candidates().getFirst();
+
+        assertFalse(result.reasons().contains("POSSIBLE_NON_TASK"));
+        assertTrue(result.confidence() >= 0.6, "真实任务必须达到提醒置信阈值: " + result.confidence());
+        assertNotNull(result.dueAt());
+    }
+
+    @Test
+    void dateOnlyChatIsMarkedNonTaskInsteadOfSilentlyDroppingReminder() {
+        ExtractionRequest request = new ExtractionRequest("今天晚上一起去吃饭吧",
+                Instant.parse("2026-11-22T02:00:00Z"), "Asia/Shanghai", "班级群", null,
+                null, null, null, null);
+
+        CandidateExtraction.CandidateDraft result = new RuleExtractor().extract(request).candidates().getFirst();
+
+        assertTrue(result.reasons().contains("POSSIBLE_NON_TASK"), "闲聊必须显式标注降级原因");
+        assertTrue(result.confidence() < 0.6, "闲聊不得达到提醒置信阈值");
+    }
 }

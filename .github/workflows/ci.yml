@@ -128,10 +128,17 @@ jobs:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Make wrapper executable
         run: chmod +x gradlew
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Build debug APK & run JVM unit tests
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-android-unit-tests
+          path: apps/android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: warn
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
