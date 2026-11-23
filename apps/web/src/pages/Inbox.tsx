@@ -26,6 +26,7 @@ import {
 } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import EvidenceList from '../components/EvidenceList'
+import FieldConfidenceTags from '../components/FieldConfidenceTags'
 import QueryState from '../components/QueryState'
 import {
   getErrorCode,
@@ -34,6 +35,14 @@ import {
   sourceApi,
   type InboxConfirmPayload
 } from '../lib/api'
+import {
+  derivationLabel,
+  formatConfidence,
+  hasLowConfidenceField,
+  parseFieldConfidence,
+  parseStringList,
+  LOW_CONFIDENCE_THRESHOLD
+} from '../lib/aiProvenance'
 import { useAuth } from '../lib/auth'
 import { SOURCE_STATE_META, formatDateTime, relativeTime } from '../lib/format'
 import type { Candidate, CandidateStatus } from '../lib/types'
@@ -154,10 +163,13 @@ export default function Inbox() {
               title={
                 <Space wrap>
                   <Typography.Text strong>{c.title}</Typography.Text>
-                  <Tag color={confidenceColor(c.confidence)}>
-                    置信度 {c.confidence == null ? '—' : `${Math.round(c.confidence * 100)}%`}
-                  </Tag>
-                  {c.derivation && <Tag>{c.derivation === 'RULE' ? '规则抽取' : c.derivation === 'AI' ? 'AI 候选' : c.derivation}</Tag>}
+                  <Tag color={confidenceColor(c.confidence)}>整体置信 {formatConfidence(c.confidence)}</Tag>
+                  {c.derivation && (
+                    <Tag color={c.derivation === 'AI' ? 'purple' : c.derivation === 'RULE' ? 'blue' : 'default'}>
+                      {derivationLabel(c.derivation)}
+                    </Tag>
+                  )}
+                  {hasLowConfidenceField(c) && <Tag color="gold">含低置信字段，需逐项核对</Tag>}
                   {parseReasons(c.reasonsJson).includes('MULTIPLE_DATES') && <Tag color="orange">多个日期</Tag>}
                 </Space>
               }
@@ -168,11 +180,23 @@ export default function Inbox() {
                   {c.summary || c.sourcePreview || '（无摘要）'}
                 </Typography.Paragraph>
                 <Space wrap size={16}>
-                  <Typography.Text>截止：{c.dueAt ? formatDateTime(c.dueAt) : c.dueDate ?? '未识别'}</Typography.Text>
+                  <Typography.Text>
+                    截止：{c.dueAt ? formatDateTime(c.dueAt) : c.dueDate ?? '未识别'}
+                    {c.rawDueText ? `（原文：${c.rawDueText}）` : ''}
+                  </Typography.Text>
                   <Typography.Text>来源：{c.sourceApp ?? '未知 App'}</Typography.Text>
                   {c.location && <Typography.Text>地点：{c.location}</Typography.Text>}
                   {c.nextAction && <Typography.Text>下一步：{c.nextAction}</Typography.Text>}
                 </Space>
+                <FieldConfidenceTags candidate={c} />
+                {parseStringList(c.uncertaintiesJson).length > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="抽取不确定项（请对照原文核实）"
+                    description={parseStringList(c.uncertaintiesJson).join('；')}
+                  />
+                )}
                 <Space wrap>
                   <Button onClick={() => setViewing(c)}>查看原文证据</Button>
                   {c.status === 'PENDING' ? (
@@ -249,7 +273,50 @@ export default function Inbox() {
         ) : sourceQuery.error ? (
           <Alert type="error" showIcon message={getErrorMessage(sourceQuery.error)} />
         ) : sourceQuery.data ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            {viewing && (
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  AI/规则推导依据
+                </Typography.Title>
+                <Descriptions column={2} size="small" bordered>
+                  <Descriptions.Item label="推导来源">{derivationLabel(viewing.derivation)}</Descriptions.Item>
+                  <Descriptions.Item label="整体置信">{formatConfidence(viewing.confidence)}</Descriptions.Item>
+                  <Descriptions.Item label="模型版本">{viewing.modelVersion ?? '未记录'}</Descriptions.Item>
+                  <Descriptions.Item label="提示词版本">{viewing.promptVersion ?? '未记录'}</Descriptions.Item>
+                  <Descriptions.Item label="Schema 版本">{viewing.schemaVersion ?? '未记录'}</Descriptions.Item>
+                  <Descriptions.Item label="需用户确认">{viewing.needsUserConfirmation ? '是' : '否'}</Descriptions.Item>
+                </Descriptions>
+                <FieldConfidenceTags candidate={viewing} />
+                {parseStringList(viewing.evidenceQuotesJson).length > 0 && (
+                  <div>
+                    <Typography.Text type="secondary">原文引用</Typography.Text>
+                    <List
+                      size="small"
+                      dataSource={parseStringList(viewing.evidenceQuotesJson)}
+                      renderItem={(q) => (
+                        <List.Item>
+                          <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{q}</Typography.Text>
+                        </List.Item>
+                      )}
+                    />
+                  </div>
+                )}
+                {parseStringList(viewing.uncertaintiesJson).length > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="抽取不确定项（请对照原文核实）"
+                    description={parseStringList(viewing.uncertaintiesJson).join('；')}
+                  />
+                )}
+                <Alert
+                  type="info"
+                  showIcon
+                  message="以上字段只作为候选依据，确认前请对照原文逐项核对。"
+                />
+              </Space>
+            )}
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="来源类型">{sourceQuery.data.sourceType}</Descriptions.Item>
               <Descriptions.Item label="可信状态">
@@ -292,6 +359,7 @@ function ConfirmModal({
   const [form] = Form.useForm<{
     title: string
     dueAt?: Dayjs
+    dueDate?: Dayjs
     dueDateConfirmed: boolean
     steps?: string
     materials?: string[]
@@ -302,12 +370,25 @@ function ConfirmModal({
 
   const reasons = useMemo(() => parseReasons(candidate?.reasonsJson ?? null), [candidate])
   const needsDateConfirm = reasons.includes('MULTIPLE_DATES')
+  const dueConfidence = useMemo(
+    () => parseFieldConfidence(candidate?.fieldConfidenceJson ?? null).due ?? null,
+    [candidate]
+  )
+  const hasDue = Boolean(candidate?.dueAt || candidate?.dueDate)
+  const dateOnly = Boolean(candidate?.dueDate && !candidate?.dueAt)
+  // 候选没有日期、但用户在表单里手填时，同样需要显式核对；后端对缺失置信度按 0 处理。
+  const watchedDueAt = Form.useWatch('dueAt', form) as Dayjs | undefined
+  const watchedDueDate = Form.useWatch('dueDate', form) as Dayjs | undefined
+  const dueNeedsConfirm =
+    (hasDue || Boolean(watchedDueAt || watchedDueDate)) &&
+    (dueConfidence == null || dueConfidence < LOW_CONFIDENCE_THRESHOLD)
 
   const initial = useMemo(() => {
     if (!candidate) return undefined
     return {
       title: candidate.title,
       dueAt: candidate.dueAt ? dayjs(candidate.dueAt) : undefined,
+      dueDate: candidate.dueDate ? dayjs(candidate.dueDate) : undefined,
       dueDateConfirmed: false,
       steps: candidate.nextAction ?? '',
       materials: parseStringArray(candidate.materialsJson),
@@ -332,10 +413,13 @@ function ConfirmModal({
     }
     setSubmitting(true)
     try {
+      const keepDateOnly = dateOnly && !!v.dueDate
       const result = await inboxApi.confirm(candidate.id, {
         baseVersion: candidate.version,
         title: v.title,
         dueAt: v.dueAt ? v.dueAt.toISOString() : null,
+        dueDate: keepDateOnly ? v.dueDate!.format('YYYY-MM-DD') : null,
+        timePrecision: v.dueAt ? 'MINUTE' : keepDateOnly ? 'DATE' : undefined,
         dueTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         dueDateConfirmed: v.dueDateConfirmed,
         notes: v.notes,
@@ -375,24 +459,55 @@ function ConfirmModal({
           <Alert
             type="info"
             showIcon
-            message="AI/规则只生成候选，本操作由你确认后才会写入事项与提醒。"
-            description={`来源：${candidate.sourceApp ?? '未知'} · 置信度 ${candidate.confidence == null ? '—' : Math.round(candidate.confidence * 100) + '%'}`}
+            message={`${derivationLabel(candidate.derivation)}，本操作由你确认后才会写入事项与提醒。`}
+            description={`来源：${candidate.sourceApp ?? '未知'} · 整体置信 ${formatConfidence(candidate.confidence)} · 日期字段置信 ${formatConfidence(dueConfidence)}`}
           />
-          {(needsDateConfirm || (candidate.confidence != null && candidate.confidence < 0.6)) && (
+          <FieldConfidenceTags candidate={candidate} />
+          {(needsDateConfirm || dueNeedsConfirm) && (
             <Alert
               type="warning"
               showIcon
-              message={needsDateConfirm ? '原文含多个日期' : '日期置信度偏低'}
+              message={
+                needsDateConfirm
+                  ? '原文含多个日期'
+                  : !hasDue
+                    ? '日期由你手动填写'
+                    : dueConfidence == null
+                      ? '日期字段未提供置信度'
+                      : '日期字段置信度偏低'
+              }
               description="请对照原文核实截止时间；未显式勾选“已核对日期”时，后端会拒绝创建截止提醒。"
+            />
+          )}
+          {parseStringList(candidate.uncertaintiesJson).length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="抽取不确定项（请对照原文核实）"
+              description={parseStringList(candidate.uncertaintiesJson).join('；')}
             />
           )}
           <Form form={form} layout="vertical" initialValues={initial}>
             <Form.Item label="事项标题" name="title" rules={[{ required: true, message: '请输入标题' }, { max: 200 }]}>
               <Input maxLength={200} />
             </Form.Item>
-            <Form.Item label="截止时间（可留空，表示无明确截止）" name="dueAt">
-              <DatePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm" />
-            </Form.Item>
+            {dateOnly ? (
+              <Form.Item
+                label="截止日期（仅日期精度；留空会沿用候选日期）"
+                name="dueDate"
+                extra="候选只识别到日期，没有具体时间；修改后仍需勾选下方“已核对日期”。"
+              >
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+              </Form.Item>
+            ) : (
+              <Form.Item
+                label="截止时间（留空会沿用候选时间）"
+                name="dueAt"
+                extra="候选未识别到截止时间时留空即可；系统不会自动猜一个时间。"
+              >
+                <DatePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm" />
+              </Form.Item>
+            )}
             <Form.Item
               label="我已对照原文核对截止时间"
               name="dueDateConfirmed"
@@ -407,10 +522,16 @@ function ConfirmModal({
             <Form.Item label="所需材料" name="materials">
               <Select mode="tags" placeholder="输入后回车，例如：学生证" tokenSeparators={[',', '，']} />
             </Form.Item>
-            <Form.Item label="提前提醒" name="reminder" initialValue="none">
+            <Form.Item
+              label="提前提醒"
+              name="reminder"
+              initialValue="none"
+              extra={dateOnly ? '候选只有日期精度，不会自动猜时间创建提醒；可在事项详情中补充具体时间。' : undefined}
+            >
               <Select
+                disabled={dateOnly}
                 options={[
-                  { value: 'none', label: '不创建提醒' },
+                  { value: 'none', label: dateOnly ? '仅日期精度，不创建提醒' : '不创建提醒' },
                   { value: '1h', label: '提前 1 小时' },
                   { value: '3h', label: '提前 3 小时' },
                   { value: '1d', label: '提前 1 天' }

@@ -53,11 +53,13 @@ public class RuleExtractor {
         List<String> dateQuotes = new ArrayList<>();
         boolean anyExplicitTime = false;
 
+        List<int[]> fullDateSpans = new ArrayList<>();
         Matcher full = FULL_DATE.matcher(text);
         while (full.find()) {
             LocalDate d = safeDate(Integer.parseInt(full.group(1)), Integer.parseInt(full.group(2)),
                     Integer.parseInt(full.group(3)));
             if (d != null) {
+                fullDateSpans.add(new int[]{full.start(), full.end()});
                 LocalTime t = parseTime(full.group(4), full.group(5));
                 anyExplicitTime |= t != null;
                 dateTimes.add(LocalDateTime.of(d, t == null ? LocalTime.MIDNIGHT : t));
@@ -66,6 +68,12 @@ public class RuleExtractor {
         }
         Matcher monthDay = MONTH_DAY.matcher(text);
         while (monthDay.find()) {
+            int matchStart = monthDay.start();
+            boolean insideFullDate = fullDateSpans.stream()
+                    .anyMatch(span -> matchStart >= span[0] && matchStart < span[1]);
+            if (insideFullDate) {
+                continue;
+            }
             int month = Integer.parseInt(monthDay.group(1));
             int day = Integer.parseInt(monthDay.group(2));
             int year = received.getYear();
@@ -153,10 +161,15 @@ public class RuleExtractor {
         fieldConfidence.put("location", location == null ? 0.0 : 0.6);
         fieldConfidence.put("materials", materials.isEmpty() ? 0.0 : 0.6);
 
+        String evidence = text.length() > 500 ? text.substring(0, 500) : text;
+        List<String> uncertainties = reasons.stream()
+                .filter(r -> r.startsWith("MULTIPLE_DATES") || r.startsWith("DATE_OPTION:") || r.equals("NO_DATE"))
+                .toList();
         CandidateExtraction.CandidateDraft draft = new CandidateExtraction.CandidateDraft(
                 title.isBlank() ? "待确认事项" : title,
                 summary,
                 category(text),
+                dateQuotes.size() == 1 ? dateQuotes.getFirst() : null,
                 dueAt,
                 dueDate,
                 zone.getId(),
@@ -166,9 +179,13 @@ public class RuleExtractor {
                 nextAction,
                 round(confidence),
                 fieldConfidence,
-                reasons
+                reasons,
+                evidence.isBlank() ? List.of() : List.of(evidence),
+                true,
+                uncertainties
         );
-        return new CandidateExtraction(List.of(draft), "rule-cn-v1", "rule-v1", "RULE", warnings);
+        return new CandidateExtraction(List.of(draft), "rule-cn-v1", "rule-v1",
+                "notification-task-v1", "RULE", warnings);
     }
 
     static boolean containsAction(String text) {

@@ -6,10 +6,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * 候选抽取编排：生产路径走真实 Provider；任何失败都降级本地规则并标记原因。
- * AI 只产出候选，不触碰 Task 状态、权限、提醒（指导书 14.1）。
+ * 候选抽取编排：生产路径走真实 Provider；失败显式降级本地规则。
+ * 成功结果按 inputHash + 模型/Prompt/Schema 版本缓存，缓存仍受 workspace、用户和来源 ACL 约束。
  */
 @Service
 public class CandidateExtractionService {
@@ -19,11 +20,14 @@ public class CandidateExtractionService {
     private final List<AiProvider> providers;
     private final AiProperties props;
     private final RuleExtractor ruleExtractor;
+    private final AiResultCacheService cacheService;
 
-    public CandidateExtractionService(List<AiProvider> providers, AiProperties props, RuleExtractor ruleExtractor) {
+    public CandidateExtractionService(List<AiProvider> providers, AiProperties props,
+                                      RuleExtractor ruleExtractor, AiResultCacheService cacheService) {
         this.providers = providers;
         this.props = props;
         this.ruleExtractor = ruleExtractor;
+        this.cacheService = cacheService;
     }
 
     public CandidateExtraction extract(ExtractionRequest request) {
@@ -37,23 +41,42 @@ public class CandidateExtractionService {
         if (!provider.production()) {
             CandidateExtraction rule = ruleExtractor.extract(request);
             List<String> warnings = new ArrayList<>(rule.warnings());
-            warnings.add("使用确定性测试 Provider（非 AI），生产环境请配置 ACTIONLOOP_AI_PROVIDER=qwen");
+            warnings.add("使用确定性测试 Provider（非 AI），真实抽取请配置 ACTIONLOOP_AI_PROVIDER=maas");
             return new CandidateExtraction(rule.candidates(), rule.modelVersion(), rule.promptVersion(),
-                    "RULE", warnings);
+                    rule.schemaVersion(), "RULE", warnings);
+        }
+        Optional<CandidateExtraction> cached = cacheService.find(request, props.getModel(),
+                QwenAiProvider.PROMPT_VERSION, QwenAiProvider.SCHEMA_VERSION);
+        if (cached.isPresent()) {
+            CandidateExtraction extraction = asAi(cached.get());
+            List<String> warnings = new ArrayList<>(extraction.warnings());
+            warnings.add("AI_CACHE_HIT: 命中同用户同来源的派生结果缓存");
+            return new CandidateExtraction(extraction.candidates(), extraction.modelVersion(),
+                    extraction.promptVersion(), extraction.schemaVersion(), "AI", warnings);
         }
         try {
-            CandidateExtraction extraction = provider.extract(request);
-            List<String> warnings = new ArrayList<>(extraction.warnings());
-            warnings.add("AI 结果仅作候选，需用户确认后才创建事项与提醒");
-            return new CandidateExtraction(extraction.candidates(), extraction.modelVersion(),
-                    extraction.promptVersion(), "AI", warnings);
-        } catch (RuntimeException e) {
-            log.warn("AI extraction fell back to rules: {}", e.getClass().getSimpleName());
+            CandidateExtraction extraction = asAi(provider.extract(request));
+            cacheService.store(request, extraction);
+            return extraction;
+        } catch (com.actionloop.shared.error.BusinessException e) {
+            if (e.code() != com.actionloop.shared.error.ErrorCode.AI_UNAVAILABLE) {
+                throw e;
+            }
+            log.warn("AI extraction unavailable; using explicit rule fallback");
             CandidateExtraction rule = ruleExtractor.extract(request);
             List<String> warnings = new ArrayList<>(rule.warnings());
-            warnings.add("AI_UNAVAILABLE_FALLBACK: 已使用本地规则，未上传云端");
+            warnings.add("AI_UNAVAILABLE_FALLBACK: 真实模型暂不可用，本次使用本地规则");
             return new CandidateExtraction(rule.candidates(), rule.modelVersion(), rule.promptVersion(),
-                    "RULE", warnings);
+                    rule.schemaVersion(), "RULE", warnings);
         }
+    }
+
+    private static CandidateExtraction asAi(CandidateExtraction value) {
+        List<String> warnings = new ArrayList<>(value.warnings());
+        if (!warnings.contains("AI 结果仅作候选，需用户确认后才创建事项与提醒")) {
+            warnings.add("AI 结果仅作候选，需用户确认后才创建事项与提醒");
+        }
+        return new CandidateExtraction(value.candidates(), value.modelVersion(), value.promptVersion(),
+                value.schemaVersion(), "AI", warnings);
     }
 }

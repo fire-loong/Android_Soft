@@ -8,6 +8,7 @@ public record CandidateExtraction(
         List<CandidateDraft> candidates,
         String modelVersion,
         String promptVersion,
+        String schemaVersion,
         String derivation,
         List<String> warnings
 ) {
@@ -15,6 +16,7 @@ public record CandidateExtraction(
             String title,
             String summary,
             String category,
+            String rawDueText,
             String dueAt,
             String dueDate,
             String dueTimezone,
@@ -24,7 +26,10 @@ public record CandidateExtraction(
             String nextAction,
             double confidence,
             Map<String, Double> fieldConfidence,
-            List<String> reasons
+            List<String> reasons,
+            List<String> evidenceQuotes,
+            boolean needsUserConfirmation,
+            List<String> uncertainties
     ) {
     }
 }

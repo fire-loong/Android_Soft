@@ -87,4 +87,23 @@ class SensitivePageDetectorTest {
         val search = frame(blocks = listOf(block("搜索课程名称", editable = true)))
         assertFalse(SensitivePageDetector.evaluate(search).sensitive)
     }
+
+    @Test
+    fun `本应用自身的说明文案不因安全关键词误判为敏感`() {
+        val text = "检测到密码 / 支付 / 锁屏会立即清除高亮并停止"
+        val own = frame(pkg = "com.actionloop.android", blocks = listOf(block(text)))
+        assertFalse(SensitivePageDetector.evaluate(own, ownPackage = "com.actionloop.android").sensitive)
+        // 同类文案出现在第三方页面仍必须判为敏感，例外只针对本应用自身界面。
+        val other = frame(pkg = "com.example.bank", blocks = listOf(block(text)))
+        assertTrue(SensitivePageDetector.evaluate(other, ownPackage = "com.actionloop.android").sensitive)
+    }
+
+    @Test
+    fun `本应用界面的密码输入框仍然判为敏感`() {
+        val own = frame(
+            pkg = "com.actionloop.android",
+            blocks = listOf(block("", editable = true, password = true))
+        )
+        assertTrue(SensitivePageDetector.evaluate(own, ownPackage = "com.actionloop.android").sensitive)
+    }
 }

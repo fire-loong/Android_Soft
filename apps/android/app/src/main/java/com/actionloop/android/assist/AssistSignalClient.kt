@@ -3,6 +3,8 @@ package com.actionloop.android.assist
 import android.content.Context
 import android.os.SystemClock
 import com.actionloop.android.data.ApiClient
+import com.actionloop.android.data.ApiException
+import com.actionloop.android.data.AssistEventView
 import com.actionloop.android.data.AssistSessionView
 import com.actionloop.android.data.AssistTurnCredentials
 import kotlinx.coroutines.CancellationException
@@ -59,7 +61,23 @@ object AssistSignalClient {
     @Volatile
     var onSessionChanged: ((AssistSessionView?) -> Unit)? = null
 
+    /**
+     * WebRTC 协商事件处理器（由 [AssistMediaService] 注册）。
+     * 只有通过本机白名单校验的 OFFER/ANSWER/ICE_CANDIDATE 才会回调；标注事件仍走状态机。
+     */
+    @Volatile
+    var mediaEventHandler: ((eventType: String, payload: Map<String, Any?>) -> Unit)? = null
+
     fun current(): AssistSessionView? = session
+
+    /** 最近一次本机终止/失败的可解释出口；UI 读取后应提示用户。 */
+    @Volatile
+    var lastError: String? = null
+        private set
+
+    fun clearError() {
+        lastError = null
+    }
 
     fun isSessionActive(): Boolean = session?.state in RUNNING_STATES
 
@@ -67,6 +85,10 @@ object AssistSignalClient {
     suspend fun start(context: Context, workspaceId: String, taskStepId: String? = null): AssistSessionView =
         lifecycle.withLock {
             stopInternal(context, "restart")
+            lastError = null
+            // 上一轮会话的终态（STOPPED/COMPLETED）不得继承：媒体策略会把它当成
+            // “本地引导已停止”，导致新会话的屏幕共享刚启动就被判定 STOP。
+            GuidanceRuntime.manager(context).resetIfTerminal()
             val myEpoch = ++epoch
             val created = net { ApiClient.createAssistSession(workspaceId, taskStepId) }
                 ?: throw IllegalStateException("创建协助会话失败，请检查网络")
@@ -131,11 +153,24 @@ object AssistSignalClient {
         net { ApiClient.assistSignal(s.id, "META", payload) }
     }
 
+    /**
+     * 发送 WebRTC 协商信令（OFFER/ANSWER/ICE_CANDIDATE）。
+     * 仅在本机会话处于 ACTIVE/PAUSED 时调用；内容只含 SDP/candidate，不含任何画面或控件文本。
+     * @return true 表示服务端已接受，false 表示无会话/未激活/网络失败（由媒体层稍后重试）。
+     */
+    suspend fun sendMediaSignal(eventType: String, payload: JsonObject): Boolean {
+        if (eventType !in MEDIA_EVENT_TYPES) return false
+        val s = session ?: return false
+        if (!isSessionActive()) return false
+        return net { ApiClient.assistSignal(s.id, eventType, payload) } != null
+    }
+
     private fun startPolling(context: Context, myEpoch: Int) {
         pollJob?.cancel()
         pollJob = scope.launch {
             var beatCounter = 0
             var refreshCounter = 0
+            var failures = 0
             while (isActive) {
                 delay(1_500)
                 if (myEpoch != epoch) return@launch
@@ -143,7 +178,16 @@ object AssistSignalClient {
                 // 会话状态只有协助者接受后才变 ACTIVE；定期同步，避免在 IDLE 阶段反复发 META 被 409。
                 refreshCounter++
                 if (refreshCounter % 2 == 0) {
-                    val latest = net { ApiClient.assistMine() }?.firstOrNull { it.id == sid }
+                    val mine: List<AssistSessionView>? = try {
+                        ApiClient.assistMine().also { failures = 0 }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        failures++
+                        if (terminalizeIfUnrecoverable(context, sid, e, failures)) return@launch
+                        null
+                    }
+                    val latest = mine?.firstOrNull { it.id == sid }
                     if (latest != null) {
                         if (myEpoch != epoch) return@launch
                         val old = session
@@ -163,7 +207,15 @@ object AssistSignalClient {
                     }
                 }
                 if (session?.id != sid || myEpoch != epoch) return@launch
-                val events = net { ApiClient.assistEvents(sid, lastSeq) }
+                val events: List<AssistEventView>? = try {
+                    ApiClient.assistEvents(sid, lastSeq).also { failures = 0 }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    failures++
+                    if (terminalizeIfUnrecoverable(context, sid, e, failures)) return@launch
+                    null
+                }
                 if (events != null) {
                     val manager = GuidanceRuntime.manager(context)
                     for (e in events) {
@@ -176,7 +228,13 @@ object AssistSignalClient {
                             if (accepted) "ASSIST_EVENT" else "ASSIST_EVENT_REJECTED",
                             "type=${e.eventType} seq=${e.seq}"
                         )
-                        if (accepted) GuidanceRuntime.render(context)
+                        if (accepted && e.eventType in MEDIA_EVENT_TYPES) {
+                            // SDP/ICE 不改变状态机，交给媒体层；标注类事件才触发悬浮层重绘。
+                            AssistSecurityAudit.record(context, "ASSIST_MEDIA_SIGNAL", "type=${e.eventType} seq=${e.seq}")
+                            mediaEventHandler?.invoke(e.eventType, payload)
+                        } else if (accepted) {
+                            GuidanceRuntime.render(context)
+                        }
                     }
                 }
                 // 心跳：让协助端知道本端仍在线；同时携带当前帧标识（无画面内容）。
@@ -193,8 +251,44 @@ object AssistSignalClient {
         }
     }
 
+    /**
+     * 轮询连续失败的处理：登录失效立即终止；普通网络错误连续 [MAX_CONSECUTIVE_POLL_FAILURES] 次终止。
+     * 必须让用户看到“会话已停止”的明确出口，而不是界面一直显示进行中、实际早已失联。
+     * @return true 表示会话已在本机终止，轮询协程应立即退出。
+     */
+    private suspend fun terminalizeIfUnrecoverable(
+        context: Context,
+        sid: String,
+        error: Throwable,
+        failures: Int
+    ): Boolean {
+        val authLost = error is ApiException && error.code == "AUTH_INVALID"
+        if (!authLost && failures < MAX_CONSECUTIVE_POLL_FAILURES) return false
+        val reason = if (authLost) "AUTH_INVALID" else "NETWORK_LOST"
+        AssistSecurityAudit.record(context, "ASSIST_LOCAL_TERMINATE", "session=$sid reason=$reason failures=$failures")
+        lastError = if (authLost) {
+            "登录已失效，协助会话已在本机停止。请重新登录后再发起。"
+        } else {
+            "网络连续失败，协助会话已在本机停止，请检查网络后重新发起。"
+        }
+        session = null
+        lastSeq = 0
+        lastPublishedFrameId = null
+        lastPublishedMonoMs = 0
+        turnCredentials = null
+        pollJob = null
+        onSessionChanged?.invoke(null)
+        runCatching { AssistMediaService.stop(context) }
+        runCatching { GuidanceRuntime.manager(context).stop("assist_$reason") }
+        GuidanceRuntime.render(context)
+        return true
+    }
+
     private val RUNNING_STATES = setOf("ACTIVE", "PAUSED")
     private val TERMINAL_STATES = setOf("STOPPED", "EXPIRED", "COMPLETED")
+    private val MEDIA_EVENT_TYPES = setOf("OFFER", "ANSWER", "ICE_CANDIDATE")
+    /** 约 33 秒（1.5s 轮询 × 20）持续失败才终止，避免瞬时抖动误杀正常会话。 */
+    private const val MAX_CONSECUTIVE_POLL_FAILURES = 20
 
     /** 只在本地引导活跃且未敏感时发布帧标识。 */
     private val LOCAL_PUBLISH_STATES = setOf(

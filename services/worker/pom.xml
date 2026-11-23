@@ -16,6 +16,12 @@
     <dependencies>
         <dependency>
             <groupId>com.actionloop</groupId>
+            <artifactId>actionloop-api</artifactId>
+            <version>${project.version}</version>
+            <classifier>library</classifier>
+        </dependency>
+        <dependency>
+            <groupId>com.actionloop</groupId>
             <artifactId>actionloop-shared</artifactId>
         </dependency>
         <dependency>

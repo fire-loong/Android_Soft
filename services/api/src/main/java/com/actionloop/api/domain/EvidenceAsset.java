@@ -42,6 +42,9 @@ public class EvidenceAsset extends VersionedAggregate {
     @Column(name = "scan_state", nullable = false)
     private ScanState scanState = ScanState.PENDING;
 
+    @Column(name = "ocr_failure_code")
+    private String ocrFailureCode;
+
     @Column(name = "retention_class", nullable = false)
     private String retentionClass = "USER_CONTROLLED";
 }

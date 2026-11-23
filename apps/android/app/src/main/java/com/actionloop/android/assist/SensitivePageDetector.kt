@@ -21,7 +21,12 @@ object SensitivePageDetector {
 
     data class Result(val sensitive: Boolean, val reason: String?)
 
-    fun evaluate(frame: GuidanceFrame): Result {
+    /**
+     * @param ownPackage 本应用包名。本应用界面由我们控制，安全说明里的“密码 / 支付 / 锁屏”
+     *   只是提示文案，不是用户敏感数据；若参与关键词扫描，会让协助/引导页面被自身文案
+     *   永久判为敏感页并暂停画面。密码输入框、FLAG_SECURE、锁屏等硬性判定仍然生效。
+     */
+    fun evaluate(frame: GuidanceFrame, ownPackage: String? = null): Result {
         if (frame.isLocked) return Result(true, "锁屏状态")
         if (frame.isSecure) return Result(true, "FLAG_SECURE 安全窗口")
         if (frame.textBlocks.any { it.isPassword || it.isEditable && isMaskedInput(it.text) }) {
@@ -30,6 +35,7 @@ object SensitivePageDetector {
         if (SENSITIVE_PACKAGES.contains(frame.packageName)) {
             return Result(true, "敏感系统界面: ${frame.packageName}")
         }
+        if (ownPackage != null && frame.packageName == ownPackage) return Result(false, null)
         for (block in frame.textBlocks) {
             val hit = SENSITIVE_KEYWORDS.firstOrNull { kw ->
                 block.text.contains(kw, ignoreCase = true)

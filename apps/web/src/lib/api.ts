@@ -21,6 +21,8 @@ import type {
   Member,
   MemoryContext,
   MemoryHit,
+  JobStatus,
+  OcrResult,
   Page,
   PendingCompletion,
   ProcessTemplate,
@@ -36,6 +38,7 @@ import type {
   Task,
   TaskSourceLink,
   TaskStatus,
+  TimePrecision,
   Workspace,
   WorkspaceDetail,
   WorkspaceType,
@@ -304,6 +307,34 @@ export const assetApi = {
   }
 }
 
+// ---------------- OCR / Job ----------------
+export const ocrApi = {
+  /** 入队云端 OCR；必须显式授权（cloudAuthorized=true），前端只在用户确认后调用。 */
+  enqueue: (assetId: string, workspaceId: string, model?: string) =>
+    unwrap<JobStatus>(
+      api.post<ApiResponse<JobStatus>>(`/assets/${assetId}/ocr`, {
+        workspaceId,
+        cloudAuthorized: true,
+        model
+      })
+    ),
+  /** 读取已生成的 OCR 文本；不存在时后端返回 RESOURCE_NOT_FOUND，由调用方区分“未识别”。 */
+  result: (assetId: string, workspaceId: string, model?: string) =>
+    unwrap<OcrResult>(
+      api.get<ApiResponse<OcrResult>>(`/assets/${assetId}/ocr`, { params: { workspaceId, model } })
+    )
+}
+
+export const jobApi = {
+  get: (jobId: string, workspaceId: string) =>
+    unwrap<JobStatus>(api.get<ApiResponse<JobStatus>>(`/jobs/${jobId}`, { params: { workspaceId } })),
+  /** 只有死信任务可人工重试；与 OCR 入队的固定幂等键配合，避免重复缓存同一失败任务。 */
+  retry: (jobId: string, workspaceId: string) =>
+    unwrap<JobStatus>(
+      api.post<ApiResponse<JobStatus>>(`/jobs/${jobId}/retry`, null, { params: { workspaceId } })
+    )
+}
+
 // ---------------- Source ----------------
 export interface ShareSourcePayload {
   workspaceId: string
@@ -340,6 +371,8 @@ export interface InboxConfirmPayload {
   baseVersion: number
   title?: string
   dueAt?: string | null
+  dueDate?: string | null
+  timePrecision?: TimePrecision
   dueTimezone?: string
   assigneeId?: string
   dueDateConfirmed?: boolean

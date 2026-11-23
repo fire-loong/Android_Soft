@@ -62,11 +62,17 @@ class GuidanceOverlay(private val context: Context) {
             color = Color.WHITE; textSize = 38f; isFakeBoldText = true
         }
 
+        private val viewLoc = IntArray(2)
+
         override fun onDraw(canvas: Canvas) {
             val snap = snapshot ?: return
             if (displayWidth <= 0 || displayHeight <= 0) return
+            // 标注坐标来自无障碍帧（全屏坐标系），而本 View 的窗口可能从状态栏下方开始（y=133）。
+            // 必须把“全屏坐标”换算到“View 局部坐标”，否则高亮会整体下移一行，落到相邻按钮上。
+            getLocationOnScreen(viewLoc)
             snap.highlight?.let { hl ->
                 val rect = hl.bounds.toPixel(displayWidth, displayHeight)
+                rect.offset(-viewLoc[0], -viewLoc[1])
                 if (!rect.isEmpty) {
                     // 半透明遮罩（四块区域绕开目标），保证目标可见
                     canvas.drawRect(0f, 0f, width.toFloat(), rect.top.toFloat(), dimPaint)
@@ -89,6 +95,7 @@ class GuidanceOverlay(private val context: Context) {
             // 指针标注：与高亮可同时存在，仍完全触摸穿透。
             snap.pointer?.let { p ->
                 val rect = p.toPixel(displayWidth, displayHeight)
+                rect.offset(-viewLoc[0], -viewLoc[1])
                 val cx = rect.exactCenterX()
                 val cy = rect.exactCenterY()
                 canvas.drawCircle(cx, cy, 30f, pointerFill)

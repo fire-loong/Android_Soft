@@ -72,7 +72,7 @@ class GuidanceSessionManager(private val context: Context) {
     )
 
     suspend fun snapshot(): Snapshot = mutex.withLock {
-        val frameSens = currentFrame?.let { SensitivePageDetector.evaluate(it) }
+        val frameSens = currentFrame?.let { SensitivePageDetector.evaluate(it, context.packageName) }
         val captureSens = captureSecureUntilMs > monoNow()
         val sensitive = frameSens?.sensitive == true || captureSens
         val reason = when {
@@ -102,6 +102,12 @@ class GuidanceSessionManager(private val context: Context) {
         // 纵深防御：即使某个异步路径漏清，敏感页也绝不返回任何标注/文字提示。
         if (sensitive) {
             highlight = null; pointer = null; textHint = null
+        }
+        // 纯远程协助：远程标注全部到期后回到文字降级，避免控制条长期显示“高亮中”却没有任何标注。
+        if (target == null && state == GuidanceSessionState.HIGHLIGHTING
+            && highlight == null && pointer == null && textHint == null
+        ) {
+            setStateLocked(GuidanceSessionState.TEXT_ONLY)
         }
         Snapshot(
             state = state,
@@ -221,7 +227,7 @@ class GuidanceSessionManager(private val context: Context) {
                 AssistSecurityAudit.record(context, "TEXT_HINT_STALE", "bound=${active.frameId} current=${frame.frameId}")
             }
         }
-        val frameSens = SensitivePageDetector.evaluate(frame)
+        val frameSens = SensitivePageDetector.evaluate(frame, context.packageName)
         val captureSens = captureSecureUntilMs > monoNow()
         val sensitive = frameSens.sensitive || captureSens
         if (sensitive) {
@@ -233,17 +239,30 @@ class GuidanceSessionManager(private val context: Context) {
             AssistSecurityAudit.record(context, "SENSITIVE_PAGE", "${frame.packageName}: $reason")
             return@withLock
         }
-        if (state == GuidanceSessionState.ACTIVE) setStateLocked(GuidanceSessionState.ALIGNING)
-        // 文字降级后仍按帧连续匹配（8.4）：页面变化后允许重新对齐，避免一次低置信锁死整个会话。
-        if (state == GuidanceSessionState.TEXT_ONLY) setStateLocked(GuidanceSessionState.ALIGNING)
-        if (state in setOf(GuidanceSessionState.ALIGNING, GuidanceSessionState.HIGHLIGHTING, GuidanceSessionState.WAITING_USER)) {
-            when (evaluateTarget(frame)) {
-                MatchResult.NO_SAFE_TARGET -> {
-                    highlight = null
-                    setStateLocked(GuidanceSessionState.TEXT_ONLY)
+        // 本机目标匹配只在存在本地目标时运行。
+        // 纯远程协助（target == null）没有本地目标可匹配，若照常执行会每帧把远程 HIGHLIGHT
+        // 清空并强制降级 TEXT_ONLY，导致协助者的标注刚落下就被删掉。
+        if (target != null) {
+            if (state == GuidanceSessionState.ACTIVE) setStateLocked(GuidanceSessionState.ALIGNING)
+            // 文字降级后仍按帧连续匹配（8.4）：页面变化后允许重新对齐，避免一次低置信锁死整个会话。
+            if (state == GuidanceSessionState.TEXT_ONLY) setStateLocked(GuidanceSessionState.ALIGNING)
+            if (state in setOf(GuidanceSessionState.ALIGNING, GuidanceSessionState.HIGHLIGHTING, GuidanceSessionState.WAITING_USER)) {
+                when (evaluateTarget(frame)) {
+                    MatchResult.NO_SAFE_TARGET -> {
+                        highlight = null
+                        setStateLocked(GuidanceSessionState.TEXT_ONLY)
+                    }
+                    MatchResult.MATCHED -> { /* 高亮由本机匹配器或远程标注写入 */ }
                 }
-                MatchResult.MATCHED -> { /* 高亮由本机匹配器或远程标注写入 */ }
             }
+        } else if (highlight == null && pointer == null && textHint == null
+            && (state == GuidanceSessionState.ACTIVE || state == GuidanceSessionState.ALIGNING
+                || state == GuidanceSessionState.WAITING_USER)
+        ) {
+            // 无本地目标且无任何标注：按低置信降级为文字步骤，但绝不触碰已存在的远程标注。
+            if (state == GuidanceSessionState.ACTIVE) setStateLocked(GuidanceSessionState.ALIGNING)
+            if (state == GuidanceSessionState.WAITING_USER) setStateLocked(GuidanceSessionState.ALIGNING)
+            setStateLocked(GuidanceSessionState.TEXT_ONLY)
         }
     }
 
@@ -309,7 +328,7 @@ class GuidanceSessionManager(private val context: Context) {
     private fun applyHighlight(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
         // 纵深防御：当前帧敏感（文本/采集侧 FLAG_SECURE）时拒绝任何高亮，即使远程标注先于敏感帧到达也不得落在敏感页（8.5）。
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it).sensitive) return false }
+        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val bounds = parseBounds(payload["bounds"]) ?: return false
@@ -339,7 +358,7 @@ class GuidanceSessionManager(private val context: Context) {
     /** 指针标注与高亮同权：必须绑定当前帧，且不允许长期驻留（8.7）。 */
     private fun applyPointer(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it).sensitive) return false }
+        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val bounds = parseBounds(payload["bounds"]) ?: return false
@@ -362,7 +381,7 @@ class GuidanceSessionManager(private val context: Context) {
      */
     private fun applyTextHint(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it).sensitive) return false }
+        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val text = payload["text"]?.toString()?.trim().orEmpty()
@@ -440,6 +459,15 @@ class GuidanceSessionManager(private val context: Context) {
     }
 
     suspend fun reset() = mutex.withLock { resetLocked() }
+
+    /**
+     * 新的协助会话开始时调用：STOPPED/COMPLETED 是上一轮会话的终态，
+     * 不得跨会话继承；否则媒体策略会把它当成“本地引导已停止”，新会话一启动就停止媒体。
+     * 只清理终态，PAUSED 等安全状态保持不变（仍需用户本地恢复）。
+     */
+    suspend fun resetIfTerminal() = mutex.withLock {
+        if (state.isTerminal()) resetLocked()
+    }
 
     /**
      * 设置当前步骤的引导目标；必须在 [start] 之后调用（新会话会清空上一轮目标）。

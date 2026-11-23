@@ -58,6 +58,8 @@ class ScreenCaptureService : Service() {
     /** 资源句柄的整体摘除锁：采集回调线程与主线程可能并发进入，摘除与释放必须原子分界。 */
     private val resourceLock = Any()
 
+    private val TERMINAL_ASSIST_STATES = setOf("STOPPED", "EXPIRED", "COMPLETED")
+
     /**
      * 会话纪元：每次 onStartCommand 建立新会话时递增。
      * 旧渲染循环只能停掉与自身纪元一致的会话，避免“旧会话看到 STOPPED 就把刚启动的新会话 stopSelf 掉”。
@@ -83,17 +85,16 @@ class ScreenCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // 与 AssistMediaService 相同：停止动作可能经 startForegroundService 送达，
+            // Android 14+ 必须先 startForeground，否则进程被系统以 FGS 超时异常杀死。
+            // 类型校验失败时也不能中断停止流程。
+            runCatching { startForegroundCompat() }
             stopCapture("notification_stop")
             return START_NOT_STICKY
         }
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
         val data = parcelableExtra(intent, EXTRA_RESULT_DATA)
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } else {
-            startForeground(NOTIF_ID, notification)
-        }
+        startForegroundCompat()
         if (resultCode != Activity.RESULT_OK || data == null) {
             Log.w(TAG, "MediaProjection 未授权，停止采集")
             stopCapture("not_authorized")
@@ -317,6 +318,11 @@ class ScreenCaptureService : Service() {
             // 迟到停止不得误杀之后启动的新会话（旧锁屏/撤权回调可能晚于新会话到达）。
             if (!isCurrentEpoch(epoch)) return@launch
             teardown()
+            // 撤权/锁屏/手动停止后不得让协助会话继续显示“进行中”：同时结束远程协助并释放媒体。
+            val assist = AssistSignalClient.current()
+            if (assist != null && assist.state !in TERMINAL_ASSIST_STATES) {
+                AssistSignalClient.stop(this@ScreenCaptureService, "capture_stopped:$reason")
+            }
             GuidanceRuntime.manager(this@ScreenCaptureService).stop(reason)
             GuidanceRuntime.render(this@ScreenCaptureService)
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -348,6 +354,15 @@ class ScreenCaptureService : Service() {
             setShowBadge(false)
         }
         nm.createNotificationChannel(ch)
+    }
+
+    private fun startForegroundCompat() {
+        val notification = buildNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
     }
 
     private fun buildNotification(): Notification {
@@ -384,7 +399,9 @@ class ScreenCaptureService : Service() {
 
         fun stop(context: Context) {
             val i = Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
-            ContextCompat.startForegroundService(context, i)
+            // 同 AssistMediaService：停止不需要前台服务启动契约，避免 Android 14+ 的 FGS 超时崩溃。
+            runCatching { context.startService(i) }
+                .onFailure { context.stopService(Intent(context, ScreenCaptureService::class.java)) }
         }
     }
 }

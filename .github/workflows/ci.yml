@@ -32,7 +32,8 @@ jobs:
       ACTIONLOOP_TEST_REDIS_PORT: '6379'
     services:
       postgres:
-        image: postgres:17
+        # 默认 Flyway 包含 pgvector 迁移（migration-vector），CI 库必须预装 vector 扩展
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: actionloop_dev

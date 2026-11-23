@@ -36,6 +36,7 @@ public final class AuditAction {
     public static final String REMINDER_REPLACE = "reminder.replace";
     public static final String ASSET_UPLOAD = "asset.upload";
     public static final String ASSET_COMPLETE = "asset.complete";
+    public static final String ASSET_OCR = "asset.ocr";
     public static final String COMPLETION_SUBMIT = "completion.submit";
     public static final String COMPLETION_REVIEW = "completion.review";
 

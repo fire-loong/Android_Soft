@@ -42,6 +42,9 @@ public class CandidateTask extends VersionedAggregate {
 
     private String category;
 
+    @Column(name = "raw_due_text")
+    private String rawDueText;
+
     @Column(name = "due_at")
     private Instant dueAt;
 
@@ -73,6 +76,20 @@ public class CandidateTask extends VersionedAggregate {
     @Column(name = "reasons_json", columnDefinition = "jsonb", nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)
     private String reasonsJson = "[]";
+
+    @Column(name = "evidence_quotes_json", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String evidenceQuotesJson = "[]";
+
+    @Column(name = "uncertainties_json", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String uncertaintiesJson = "[]";
+
+    @Column(name = "schema_version")
+    private String schemaVersion;
+
+    @Column(name = "needs_user_confirmation", nullable = false)
+    private boolean needsUserConfirmation = true;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

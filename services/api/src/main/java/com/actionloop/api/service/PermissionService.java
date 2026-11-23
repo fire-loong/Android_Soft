@@ -45,6 +45,13 @@ public class PermissionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PERMISSION_DENIED, "不是该空间的有效成员"));
     }
 
+    /** 与成员撤权共用行锁，供需要在同一事务内完成权限复核和写入的操作使用。 */
+    public Membership requireActiveMemberForUpdate(UUID workspaceId, UUID userId) {
+        return membershipRepository.findLockedByWorkspaceIdAndUserId(workspaceId, userId)
+                .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PERMISSION_DENIED, "不是该空间的有效成员"));
+    }
+
     public boolean hasAtLeastRole(UUID workspaceId, UUID userId, Role minRole) {
         return activeMembership(workspaceId, userId)
                 .map(m -> rank(m.getRole()) >= rank(minRole))

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://actionloop.local/schemas/notification-task-v1.schema.json",
+  "title": "ActionLoop notification candidate extraction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidates"],
+  "properties": {
+    "schemaVersion": { "const": "notification-task-v1" },
+    "candidates": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["isActionable", "title", "summary", "category", "due", "location", "materials", "action", "confidence", "fieldConfidence", "evidenceQuotes", "needsUserConfirmation", "uncertainties", "sensitive"],
+        "properties": {
+          "isActionable": { "type": "boolean" },
+          "title": { "type": "string", "maxLength": 200 },
+          "summary": { "type": ["string", "null"], "maxLength": 2000 },
+          "category": { "enum": ["SUBMISSION", "REGISTRATION", "PAYMENT", "EVENT", "TASK"] },
+          "due": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rawText", "resolvedAt", "precision", "confidence"],
+            "properties": {
+              "rawText": { "type": ["string", "null"], "maxLength": 200 },
+              "resolvedAt": { "type": ["string", "null"], "maxLength": 100 },
+              "precision": { "enum": ["MINUTE", "DATE", "NONE"] },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          },
+          "location": { "type": ["string", "null"], "maxLength": 200 },
+          "materials": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "quote"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "quote": { "type": "string", "minLength": 1, "maxLength": 1000 }
+              }
+            }
+          },
+          "action": { "type": ["string", "null"], "maxLength": 500 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "fieldConfidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "due", "time", "location", "materials"],
+            "properties": {
+              "title": { "type": "number", "minimum": 0, "maximum": 1 },
+              "due": { "type": "number", "minimum": 0, "maximum": 1 },
+              "time": { "type": "number", "minimum": 0, "maximum": 1 },
+              "location": { "type": "number", "minimum": 0, "maximum": 1 },
+              "materials": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          },
+          "evidenceQuotes": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          },
+          "needsUserConfirmation": { "const": true },
+          "uncertainties": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "maxLength": 500 }
+          },
+          "sensitive": { "type": "boolean" },
+          "reasonCode": { "type": ["string", "null"], "maxLength": 100 }
+        }
+      }
+    }
+  }
+}

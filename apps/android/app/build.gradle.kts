@@ -68,6 +68,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.preferences)
+    // 远程协助媒体通道：仅用于只读屏幕共享，信令走自身后端（OFFER/ANSWER/ICE_CANDIDATE）
+    implementation(libs.webrtc.android)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

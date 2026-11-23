@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/** 候选卡片（指导书 4.3）：逐字段置信、原文跳转、冲突原因。 */
+/** 候选卡片：逐字段置信、原文引用、原始日期、冲突原因和模型/Schema 版本。 */
 public record CandidateView(
         UUID id,
         UUID workspaceId,
@@ -18,6 +18,7 @@ public record CandidateView(
         String title,
         String summary,
         String category,
+        String rawDueText,
         Instant dueAt,
         LocalDate dueDate,
         String dueTimezone,
@@ -28,9 +29,13 @@ public record CandidateView(
         BigDecimal confidence,
         String fieldConfidenceJson,
         String reasonsJson,
+        String evidenceQuotesJson,
+        String uncertaintiesJson,
         Derivation derivation,
         String modelVersion,
         String promptVersion,
+        String schemaVersion,
+        boolean needsUserConfirmation,
         CandidateStatus status,
         UUID confirmedTaskId,
         String dismissedReason,
@@ -41,10 +46,12 @@ public record CandidateView(
 ) {
     public static CandidateView of(CandidateTask c, String sourceApp, String sourcePreview) {
         return new CandidateView(c.getId(), c.getWorkspaceId(), c.getSourceItemId(), c.getTitle(),
-                c.getSummary(), c.getCategory(), c.getDueAt(), c.getDueDate(), c.getDueTimezone(),
-                c.getTimePrecision(), c.getLocation(), c.getMaterialsJson(), c.getNextAction(),
-                c.getConfidence(), c.getFieldConfidenceJson(), c.getReasonsJson(), c.getDerivation(),
-                c.getModelVersion(), c.getPromptVersion(), c.getStatus(), c.getConfirmedTaskId(),
-                c.getDismissedReason(), c.getVersion(), c.getCreatedAt(), sourceApp, sourcePreview);
+                c.getSummary(), c.getCategory(), c.getRawDueText(), c.getDueAt(), c.getDueDate(),
+                c.getDueTimezone(), c.getTimePrecision(), c.getLocation(), c.getMaterialsJson(),
+                c.getNextAction(), c.getConfidence(), c.getFieldConfidenceJson(), c.getReasonsJson(),
+                c.getEvidenceQuotesJson(), c.getUncertaintiesJson(), c.getDerivation(), c.getModelVersion(),
+                c.getPromptVersion(), c.getSchemaVersion(), c.isNeedsUserConfirmation(), c.getStatus(),
+                c.getConfirmedTaskId(), c.getDismissedReason(), c.getVersion(), c.getCreatedAt(),
+                sourceApp, sourcePreview);
     }
 }

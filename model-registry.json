@@ -1,0 +1,181 @@
+{
+  "registryVersion": "model-registry-v1",
+  "updatedAt": "2026-11-22",
+  "models": [
+    {
+      "provider": "xfyun-maas",
+      "modelId": "spark-x2.6",
+      "modelVersion": "spark-x2.6 (service weight_version=default; exact internal revision not disclosed)",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["text", "vision"],
+      "enabledFor": ["development-notification-extraction"],
+      "productionEnabled": false,
+      "enabledAt": "2026-11-22",
+      "contextLimitTokens": null,
+      "price": null,
+      "dataRetentionPolicy": "未由接口响应确认；敏感内容在客户端/服务端预过滤，正式部署前必须核对服务协议",
+      "structuredOutput": {
+        "responseFormatJsonObject": true,
+        "schemaVersion": "notification-task-v1",
+        "promptVersion": "openai-notification-extract-v2"
+      },
+      "evaluation": {
+        "gate": "G-LLM-01",
+        "status": "development-smoke-passed-full-benchmark-pending",
+        "liveSmokeSamples": 1,
+        "firstSchemaValid": false,
+        "repairSucceeded": true,
+        "evidenceQuoteValidRate": 1.0,
+        "programmaticDateResolutionPassed": true,
+        "runtimeRestSmoke": {
+          "status": "passed",
+          "samples": 1,
+          "path": "POST /api/v1/sources/share -> candidate_tasks + ai_result_cache -> DELETE /api/v1/sources/{id}",
+          "derivation": "AI",
+          "evidenceQuoteValidRate": 1.0,
+          "rawDueTextExactSubstring": true,
+          "programmaticDateResolutionPassed": true,
+          "privateCachePersisted": true,
+          "cacheCleanupOnDeletePassed": true,
+          "note": "开发运行时冒烟；来源与缓存已清理，不作为 G-LLM-01 正式评测样本"
+        },
+        "thresholdsCertified": false
+      }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "spark-x2.6-4b",
+      "modelVersion": "spark-x2.6-4b",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["text"],
+      "productionEnabled": false,
+      "contextLimitTokens": null,
+      "price": null,
+      "dataRetentionPolicy": "待核对服务协议",
+      "evaluation": { "gate": "G-LLM-01", "status": "not-run", "thresholdsCertified": false }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "spark-x2.6-1.7b",
+      "modelVersion": "spark-x2.6-1.7b",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["text"],
+      "productionEnabled": false,
+      "contextLimitTokens": null,
+      "price": null,
+      "dataRetentionPolicy": "待核对服务协议",
+      "evaluation": { "gate": "G-LLM-01", "status": "not-run", "thresholdsCertified": false }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "xop3qwen8bembedding",
+      "modelVersion": "xop3qwen8bembedding",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/embeddings",
+      "capabilities": ["embedding"],
+      "embeddingDimension": 768,
+      "dimensionMeasuredAt": "2026-11-22",
+      "dimensionEvidence": "MaaS /embeddings 实测返回 data[0].embedding 长度 768；已按此维度创建 pgvector vector(768)",
+      "productionEnabled": false,
+      "contextLimitTokens": null,
+      "price": null,
+      "dataRetentionPolicy": "待核对服务协议",
+      "evaluation": {
+        "gate": "G-SEARCH-01",
+        "status": "integrated-development-smoke-passed-benchmark-pending",
+        "runtimeSmoke": "已接入 SearchIndexService：索写入 pgvector，查询走向量召回 + MaaS rerank 重排；不是正式检索评测",
+        "thresholdsCertified": false
+      },
+      "decisionDeviation": "指导书原定 BGE-M3；实际可用模型为用户提供的 xop3qwen8bembedding，实测 768 维，不冒充 BGE-M3"
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "xop3qwen8breranker",
+      "modelVersion": "xop3qwen8breranker",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/rerank",
+      "capabilities": ["rerank"],
+      "productionEnabled": false,
+      "price": null,
+      "dataRetentionPolicy": "待核对服务协议",
+      "evaluation": {
+        "gate": "G-SEARCH-01",
+        "status": "integrated-development-smoke-passed-benchmark-pending",
+        "runtimeSmoke": "MaaS /rerank 返回 results[].index/relevance_score；已用于 SearchIndexService 候选重排；不是正式检索评测",
+        "thresholdsCertified": false
+      }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "xopdeepseekocr",
+      "modelVersion": "xopdeepseekocr",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["cloud-ocr"],
+      "productionEnabled": false,
+      "dataRetentionPolicy": "图片上传前必须单独授权；待核对服务协议",
+      "evaluation": {
+        "gate": "G-OCR-01",
+        "status": "development-cloud-smoke-passed-offline-gate-not-run",
+        "liveCloudSmokeSamples": 1,
+        "exactTextMatch": true,
+        "coordinatesAvailable": false,
+        "runtimeRestSmoke": "POST/GET /api/v1/assets/{id}/ocr；按模型隔离结果、默认模型缓存与原件 SHA-256 均验证通过",
+        "databaseVerified": true,
+        "smokeDataCleaned": true,
+        "offlineGateSatisfied": false,
+        "thresholdsCertified": false,
+        "note": "每模型仅 1 张非私密中文图片的开发云端冒烟；不是 150 张正式评测，不替代离线 G-OCR-01"
+      }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "xoppaddleocrv16",
+      "modelVersion": "xoppaddleocrv16",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["cloud-ocr"],
+      "productionEnabled": false,
+      "dataRetentionPolicy": "图片上传前必须单独授权；待核对服务协议",
+      "evaluation": {
+        "gate": "G-OCR-01",
+        "status": "development-cloud-smoke-passed-offline-gate-not-run",
+        "liveCloudSmokeSamples": 1,
+        "exactTextMatch": true,
+        "coordinatesAvailable": false,
+        "runtimeRestSmoke": "POST/GET /api/v1/assets/{id}/ocr；按模型隔离结果、默认模型缓存与原件 SHA-256 均验证通过",
+        "databaseVerified": true,
+        "smokeDataCleaned": true,
+        "offlineGateSatisfied": false,
+        "thresholdsCertified": false,
+        "note": "每模型仅 1 张非私密中文图片的开发云端冒烟；不是 150 张正式评测，不替代离线 G-OCR-01"
+      }
+    },
+    {
+      "provider": "xfyun-maas",
+      "modelId": "xophunyuanocr",
+      "modelVersion": "xophunyuanocr",
+      "region": "cn-huabei-1",
+      "apiVersion": "OpenAI-compatible /v2/chat/completions",
+      "capabilities": ["cloud-ocr"],
+      "productionEnabled": false,
+      "dataRetentionPolicy": "图片上传前必须单独授权；待核对服务协议",
+      "evaluation": {
+        "gate": "G-OCR-01",
+        "status": "development-cloud-smoke-passed-offline-gate-not-run",
+        "liveCloudSmokeSamples": 1,
+        "exactTextMatch": true,
+        "coordinatesAvailable": false,
+        "runtimeRestSmoke": "POST/GET /api/v1/assets/{id}/ocr；按模型隔离结果、默认模型缓存与原件 SHA-256 均验证通过",
+        "databaseVerified": true,
+        "smokeDataCleaned": true,
+        "offlineGateSatisfied": false,
+        "thresholdsCertified": false,
+        "note": "每模型仅 1 张非私密中文图片的开发云端冒烟；不是 150 张正式评测，不替代离线 G-OCR-01"
+      }
+    }
+  ]
+}

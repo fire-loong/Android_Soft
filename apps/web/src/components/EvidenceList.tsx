@@ -1,6 +1,7 @@
 import { App, Button, List, Space, Tag, Typography } from 'antd'
 import type { EvidenceRef } from '../lib/types'
 import { assetApi } from '../lib/api'
+import OcrPanel from './OcrPanel'
 
 function rangeLabel(e: EvidenceRef): string {
   if (e.pageNo != null) return `第 ${e.pageNo} 页`
@@ -55,6 +56,7 @@ export default function EvidenceList({
                 坐标：{e.bboxJson}
               </Typography.Text>
             )}
+            {e.assetId && <OcrPanel assetId={e.assetId} workspaceId={workspaceId} />}
           </Space>
         </List.Item>
       )}

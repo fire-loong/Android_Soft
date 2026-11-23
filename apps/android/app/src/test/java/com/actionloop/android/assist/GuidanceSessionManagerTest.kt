@@ -500,4 +500,79 @@ class GuidanceSessionManagerTest {
         assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
         assertNull(manager.snapshot().highlight)
     }
+
+    /**
+     * 真机回归（纯远程协助）：协助者标注落下后，本机持续上报同一帧（frameId 不变）时，
+     * 不得因为“没有本地目标”而把远程 HIGHLIGHT 清掉或强制降级 TEXT_ONLY。
+     */
+    @Test
+    fun `纯远程协助的标注不会被后续同帧刷新清除`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.onFrame(normalFrame)
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertEquals(GuidanceSessionState.HIGHLIGHTING, manager.snapshot().state)
+        assertNotNull(manager.snapshot().highlight)
+
+        // 同一 frameId 的后续帧（页面内容未变化）必须保留远程标注。
+        manager.onFrame(normalFrame)
+        assertEquals(GuidanceSessionState.HIGHLIGHTING, manager.snapshot().state)
+        assertNotNull(manager.snapshot().highlight)
+    }
+
+    /** 远程标注到期后必须回到文字降级，控制条不能长期显示“高亮中”却没有标注。 */
+    @Test
+    fun `远程标注过期后回到文字降级`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.onFrame(normalFrame)
+        assertTrue(
+            manager.applyIncomingEvent(
+                "s-1", "HIGHLIGHT",
+                highlightPayload(expiresAt = System.currentTimeMillis() + 2_000)
+            )
+        )
+        assertEquals(GuidanceSessionState.HIGHLIGHTING, manager.snapshot().state)
+
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(2_500))
+        val snap = manager.snapshot()
+        assertNull(snap.highlight)
+        assertEquals(GuidanceSessionState.TEXT_ONLY, snap.state)
+    }
+
+    /** 换帧（frameId 变化）时远程标注必须失效：这是“标注绑定当前帧”的核心保证。 */
+    @Test
+    fun `换帧后远程标注立即失效`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.onFrame(normalFrame)
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertNotNull(manager.snapshot().highlight)
+
+        manager.onFrame(normalFrame.copy(frameId = "frame-2", pageHash = "page-next"))
+        val snap = manager.snapshot()
+        assertNull(snap.highlight)
+        assertEquals("frame-2", snap.frameId)
+    }
+
+    // ---- 会话间状态隔离 ----
+
+    @Test
+    fun `新一轮协助会话不继承上一轮的终态`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.stop("user_done")
+        assertTrue(manager.snapshot().state.isTerminal())
+        manager.resetIfTerminal()
+        assertEquals(GuidanceSessionState.IDLE, manager.snapshot().state)
+        // 终态被清理后，新会话可以重新走完整授权流程。
+        manager.start()
+        assertEquals(GuidanceSessionState.CONSENT_PENDING, manager.snapshot().state)
+    }
+
+    @Test
+    fun `清理终态不会放宽暂停等安全状态`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.pause("sensitive")
+        manager.resetIfTerminal()
+        assertEquals(GuidanceSessionState.PAUSED, manager.snapshot().state)
+    }
 }

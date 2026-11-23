@@ -31,6 +31,7 @@ class ReviewEvidenceIntegrationTest extends AbstractIntegrationTest {
         share.put("sourceKey", unique("key"));
         share.put("title", "助学金申请通知");
         share.put("text", "明天下午3点前提交助学金申请表，需要携带学生证和成绩单");
+        share.put("localOnly", true);
         Resp shareResp = req("POST", "/api/v1/sources/share", token, share, null);
         assertEquals(200, shareResp.status, shareResp.raw);
         String candidateId = shareResp.json.path("data").path("candidateIds").get(0).asText();

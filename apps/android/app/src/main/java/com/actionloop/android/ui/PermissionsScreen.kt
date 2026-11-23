@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -52,6 +52,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.actionloop.android.assist.AssistMediaService
 import com.actionloop.android.assist.AssistSignalClient
 import com.actionloop.android.assist.GuidanceRuntime
 import com.actionloop.android.assist.ScreenCaptureService
@@ -86,11 +87,24 @@ fun PermissionsScreen(onBack: () -> Unit) {
     var sessionActive by remember { mutableStateOf(false) }
     var assistSession by remember { mutableStateOf(AssistSignalClient.current()) }
     var assistBusy by remember { mutableStateOf(false) }
+    var mediaActive by remember { mutableStateOf(AssistMediaService.isRunning) }
     val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             ScreenCaptureService.start(context, result.resultCode, result.data!!)
         } else {
             Toast.makeText(context, "未授权屏幕采集，引导未启动", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 远程协助的画面共享使用**独立的一次性授权**：不复用本地引导的 MediaProjection，
+    // 且只在协助者已接受、用户再次确认后才启动。
+    val mediaLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val sid = AssistSignalClient.current()?.id
+        if (result.resultCode == Activity.RESULT_OK && result.data != null && sid != null) {
+            AssistMediaService.start(context, sid, result.resultCode, result.data!!)
+            Toast.makeText(context, "屏幕共享已启动，可随时在通知中停止", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "未授权屏幕共享，协助者只能看到标注", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -133,6 +147,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
             a11yEnabled = GuidanceRuntime.isAccessibilityEnabled(context)
             sessionActive = runCatching { GuidanceRuntime.overlay?.isShown() == true }.getOrDefault(false)
             assistSession = AssistSignalClient.current()
+            mediaActive = AssistMediaService.isRunning
             delay(1000)
         }
     }
@@ -156,7 +171,10 @@ fun PermissionsScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("通知读取", style = MaterialTheme.typography.titleMedium)
@@ -254,40 +272,76 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         }) { Text("管理无障碍") }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
+                            modifier = Modifier.weight(1f),
                             enabled = overlayGranted,
                             onClick = {
                                 val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                                 projectionLauncher.launch(mpm.createScreenCaptureIntent())
                             }
                         ) { Text("启动一次引导") }
-                        Button(onClick = { ScreenCaptureService.stop(context) }) { Text("停止引导") }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { ScreenCaptureService.stop(context) }
+                        ) { Text("停止引导") }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
+                            modifier = Modifier.weight(1f),
                             enabled = !assistBusy && assistSession == null,
                             onClick = { startAssist() }
-                        ) { Text(if (assistBusy) "发起中…" else "发起远程求助") }
+                        ) { Text(if (assistBusy) "发起中…" else "发起求助") }
                         assistSession?.let { s ->
-                            Button(onClick = {
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("ActionLoop 协助邀请", s.id))
-                                Toast.makeText(context, "邀请码已复制", Toast.LENGTH_SHORT).show()
-                            }) { Text("复制邀请码") }
-                            Button(onClick = {
-                                scope.launch {
-                                    assistBusy = true
-                                    AssistSignalClient.stop(context, "user_permissions")
-                                    assistSession = null
-                                    assistBusy = false
-                                    Toast.makeText(context, "已停止远程求助", Toast.LENGTH_SHORT).show()
+                            Button(
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("ActionLoop 协助邀请", s.id))
+                                    Toast.makeText(context, "邀请码已复制", Toast.LENGTH_SHORT).show()
                                 }
-                            }) { Text("停止求助") }
+                            ) { Text("复制邀请码") }
+                            Button(
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    AssistMediaService.stop(context)
+                                    scope.launch {
+                                        assistBusy = true
+                                        AssistSignalClient.stop(context, "user_permissions")
+                                        assistSession = null
+                                        assistBusy = false
+                                        Toast.makeText(context, "已停止远程求助", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) { Text("停止求助") }
                         }
                     }
                     assistSession?.let { s ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                modifier = Modifier.weight(1f),
+                                enabled = !mediaActive && s.state == "ACTIVE",
+                                onClick = {
+                                    val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                    mediaLauncher.launch(mpm.createScreenCaptureIntent())
+                                }
+                            ) { Text(if (mediaActive) "屏幕共享中" else "共享屏幕") }
+                            if (mediaActive) {
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { AssistMediaService.stop(context) }
+                                ) { Text("停止共享") }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "画面共享需要单独的一次性授权（不复用本地引导的授权）。" +
+                                "协助者接受后按钮才可用；锁屏、密码/支付页、暂停或停止都会立即中断画面。" +
+                                "仅发送屏幕视频轨（DTLS-SRTP），不录音、不录像、不落盘，协助者无法点击或输入。",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Spacer(Modifier.height(6.dp))
                         Text("邀请码：${s.id}", style = MaterialTheme.typography.bodySmall)
                         Text(
@@ -302,6 +356,15 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         "说明：未开启无障碍时仍可启动远程协助；本地目标匹配需开启只读无障碍。",
                         style = MaterialTheme.typography.bodySmall
                     )
+                    // 轮询失联/登录失效时必须有可解释出口，不能让界面停留在“看似进行中”。
+                    AssistSignalClient.lastError?.let { msg ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -311,8 +374,8 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 Text("尚未观察到通知。授予通知读取权限后，这里会出现可勾选的 App（仅记录包名）。",
                     style = MaterialTheme.typography.bodySmall)
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(seen.toList().sorted()) { pkg ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    seen.toList().sorted().forEach { pkg ->
                         Card(Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
                                 Text(pkg, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

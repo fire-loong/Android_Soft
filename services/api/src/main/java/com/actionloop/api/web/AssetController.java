@@ -2,10 +2,14 @@ package com.actionloop.api.web;
 
 import com.actionloop.api.security.UserPrincipal;
 import com.actionloop.api.service.AssetService;
+import com.actionloop.api.service.OcrService;
 import com.actionloop.api.web.dto.AssetView;
 import com.actionloop.api.web.dto.CompleteUploadRequest;
 import com.actionloop.api.web.dto.InitUploadRequest;
 import com.actionloop.api.web.dto.InitUploadResponse;
+import com.actionloop.api.web.dto.JobView;
+import com.actionloop.api.web.dto.OcrRequest;
+import com.actionloop.api.web.dto.OcrResultView;
 import com.actionloop.shared.web.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -36,9 +40,11 @@ import java.util.UUID;
 public class AssetController {
 
     private final AssetService assetService;
+    private final OcrService ocrService;
 
-    public AssetController(AssetService assetService) {
+    public AssetController(AssetService assetService, OcrService ocrService) {
         this.assetService = assetService;
+        this.ocrService = ocrService;
     }
 
     private String reqId() {
@@ -76,6 +82,22 @@ public class AssetController {
                                       @RequestParam UUID workspaceId,
                                       @PathVariable UUID id) {
         return ApiResponse.of(assetService.getAsset(workspaceId, id, me.userId()), reqId());
+    }
+
+    @PostMapping("/assets/{id}/ocr")
+    public ResponseEntity<ApiResponse<JobView>> recognize(@AuthenticationPrincipal UserPrincipal me,
+                                                          @PathVariable UUID id,
+                                                          @Valid @RequestBody OcrRequest request) {
+        return ResponseEntity.accepted()
+                .body(ApiResponse.of(JobView.of(ocrService.enqueue(me.userId(), id, request)), reqId()));
+    }
+
+    @GetMapping("/assets/{id}/ocr")
+    public ApiResponse<OcrResultView> ocrResult(@AuthenticationPrincipal UserPrincipal me,
+                                                @RequestParam UUID workspaceId,
+                                                @RequestParam(required = false) String model,
+                                                @PathVariable UUID id) {
+        return ApiResponse.of(ocrService.getResult(me.userId(), workspaceId, id, model), reqId());
     }
 
     @GetMapping("/assets/{id}/download-url")

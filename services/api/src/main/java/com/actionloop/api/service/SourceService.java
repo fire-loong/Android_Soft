@@ -2,6 +2,7 @@ package com.actionloop.api.service;
 
 import com.actionloop.api.ai.CandidateExtraction;
 import com.actionloop.api.ai.CandidateExtractionService;
+import com.actionloop.api.ai.AiResultCacheService;
 import com.actionloop.api.ai.ExtractionRequest;
 import com.actionloop.api.ai.RuleExtractor;
 import com.actionloop.api.ai.SensitiveContentDetector;
@@ -26,7 +27,9 @@ import com.actionloop.api.web.dto.SourceView;
 import com.actionloop.shared.audit.AuditAction;
 import com.actionloop.shared.error.BusinessException;
 import com.actionloop.shared.error.ErrorCode;
+import org.slf4j.MDC;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -53,7 +56,7 @@ import java.util.UUID;
  * - 敏感内容（验证码/支付/密码）默认不送云端、不生成候选。
  */
 @Service
-@Transactional(noRollbackFor = BusinessException.class)
+@Transactional
 public class SourceService {
 
     private static final int MAX_LIST = 100;
@@ -65,20 +68,24 @@ public class SourceService {
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final CandidateExtractionService extractionService;
+    private final AiResultCacheService aiCacheService;
     private final RuleExtractor ruleExtractor;
     private final SensitiveContentDetector sensitiveDetector;
     private final SearchIndexService searchIndexService;
     private final SourceFetchService sourceFetchService;
     private final EventService eventService;
+    private final JobService jobService;
+    private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
     public SourceService(SourceItemRepository sourceRepository, EvidenceRefRepository evidenceRefRepository,
                          EvidenceAssetRepository assetRepository, CandidateTaskRepository candidateRepository,
                          PermissionService permissionService, AuditService auditService,
-                         CandidateExtractionService extractionService, RuleExtractor ruleExtractor,
-                         SensitiveContentDetector sensitiveDetector, SearchIndexService searchIndexService,
+                         CandidateExtractionService extractionService, AiResultCacheService aiCacheService,
+                         RuleExtractor ruleExtractor, SensitiveContentDetector sensitiveDetector,
+                         SearchIndexService searchIndexService,
                          SourceFetchService sourceFetchService, EventService eventService,
-                         ObjectMapper objectMapper) {
+                         JobService jobService, JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.sourceRepository = sourceRepository;
         this.evidenceRefRepository = evidenceRefRepository;
         this.assetRepository = assetRepository;
@@ -86,11 +93,14 @@ public class SourceService {
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.extractionService = extractionService;
+        this.aiCacheService = aiCacheService;
         this.ruleExtractor = ruleExtractor;
         this.sensitiveDetector = sensitiveDetector;
         this.searchIndexService = searchIndexService;
         this.sourceFetchService = sourceFetchService;
         this.eventService = eventService;
+        this.jobService = jobService;
+        this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
     }
 
@@ -160,8 +170,10 @@ public class SourceService {
                 req.sourceType().name(), userId, personalOnly);
 
         List<CandidateTask> created = new ArrayList<>();
-        if (!sensitive.sensitive()) {
-            created = generateCandidates(source, text, Boolean.TRUE.equals(req.localOnly()), userId);
+        if (!sensitive.sensitive() && Boolean.TRUE.equals(req.localOnly())) {
+            created = generateCandidates(source, text, userId);
+        } else if (!sensitive.sensitive()) {
+            enqueueExtraction(source, text, req.timezone(), userId);
         }
         eventService.emit(req.workspaceId(), source.getId(), "SOURCE", isUpdate ? "SOURCE_UPDATED" : "SOURCE_CREATED",
                 source.getVersion(), Map.of("sourceId", source.getId().toString(),
@@ -199,6 +211,8 @@ public class SourceService {
             throw new BusinessException(ErrorCode.VERSION_CONFLICT, "来源已被修改，请刷新后重试");
         }
         long linked = candidateRepository.countBySourceItemId(sourceId);
+        jobService.invalidateSource(workspaceId, sourceId);
+        aiCacheService.deleteForSource(workspaceId, sourceId);
         source.setDeletedAt(Instant.now());
         sourceRepository.save(source);
         evidenceRefRepository.findBySourceItemId(sourceId).forEach(r -> {
@@ -211,6 +225,7 @@ public class SourceService {
                 Map.of("sourceId", sourceId.toString()));
     }
 
+    @Transactional(noRollbackFor = BusinessException.class)
     public SourceRecheckResponse recheck(UUID workspaceId, UUID sourceId, UUID userId) {
         permissionService.requireAtLeastRole(workspaceId, userId, Role.MEMBER);
         SourceItem source = load(workspaceId, sourceId);
@@ -255,15 +270,59 @@ public class SourceService {
                 source.getContentPreview(), source.getLastCheckedAt(), changed);
     }
 
-    private List<CandidateTask> generateCandidates(SourceItem source, String text, boolean localOnly, UUID userId) {
-        ExtractionRequest request = new ExtractionRequest(text, source.getReceivedAt(),
-                "Asia/Shanghai", source.getSourceApp(), source.getSourceTitle());
-        CandidateExtraction extraction;
-        if (localOnly) {
-            extraction = ruleExtractor.extract(request);
-        } else {
-            extraction = extractionService.extract(request);
+    @Transactional(readOnly = true)
+    public ExtractionRequest buildExtractionRequest(UUID workspaceId, UUID sourceId, UUID userId,
+                                                    String text, String timezone) {
+        SourceItem source = load(workspaceId, sourceId);
+        if (source.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "来源已删除");
         }
+        return new ExtractionRequest(text, source.getReceivedAt(), zoneOrDefault(timezone),
+                source.getSourceApp(), source.getSourceTitle(), workspaceId, sourceId, userId,
+                "job-source-ai-extraction");
+    }
+
+    @Transactional
+    public void persistExtraction(UUID workspaceId, UUID sourceId, UUID userId, CandidateExtraction extraction) {
+        permissionService.requireActiveMemberForUpdate(workspaceId, userId);
+        boolean locked = !jdbcTemplate.queryForList("""
+                SELECT 1 FROM source_items WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL FOR UPDATE
+                """, Integer.class, workspaceId, sourceId).isEmpty();
+        if (!locked) {
+            return;
+        }
+        SourceItem source = load(workspaceId, sourceId);
+        int created = saveCandidates(source, extraction, userId).size();
+        eventService.emit(workspaceId, sourceId, "SOURCE", "CANDIDATES_EXTRACTED", source.getVersion(),
+                Map.of("sourceId", sourceId.toString(), "candidateCount", created));
+    }
+
+    private void enqueueExtraction(SourceItem source, String text, String timezone, UUID userId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sourceId", source.getId().toString());
+        payload.put("userId", userId.toString());
+        payload.put("text", text);
+        if (timezone != null && !timezone.isBlank()) {
+            payload.put("timezone", timezone);
+        }
+        String requestId = MDC.get("requestId");
+        if (requestId != null && !requestId.isBlank()) {
+            payload.put("requestId", requestId);
+        }
+        jobService.enqueue(source.getWorkspaceId(), userId, "SOURCE_AI_EXTRACTION",
+                "source:" + source.getId(), "source:" + source.getId() + ":ai:" + source.getContentHash(),
+                payload);
+    }
+
+    private List<CandidateTask> generateCandidates(SourceItem source, String text, UUID userId) {
+        ExtractionRequest request = new ExtractionRequest(text, source.getReceivedAt(),
+                "Asia/Shanghai", source.getSourceApp(), source.getSourceTitle(),
+                source.getWorkspaceId(), source.getId(), userId, null);
+        CandidateExtraction extraction = ruleExtractor.extract(request);
+        return saveCandidates(source, extraction, userId);
+    }
+
+    private List<CandidateTask> saveCandidates(SourceItem source, CandidateExtraction extraction, UUID userId) {
         List<CandidateTask> saved = new ArrayList<>();
         for (CandidateExtraction.CandidateDraft draft : extraction.candidates()) {
             String title = trimTo(draft.title(), 200);
@@ -280,6 +339,7 @@ public class SourceService {
             candidate.setTitle(title);
             candidate.setSummary(trimTo(draft.summary(), 2000));
             candidate.setCategory(trimTo(draft.category(), 40));
+            candidate.setRawDueText(trimTo(draft.rawDueText(), 200));
             candidate.setDueAt(parseInstant(draft.dueAt(), draft.dueTimezone()));
             candidate.setDueDate(parseDate(draft.dueDate(), draft.dueAt(), draft.dueTimezone()));
             candidate.setDueTimezone(draft.dueTimezone());
@@ -295,6 +355,12 @@ public class SourceService {
                 reasons.addAll(extraction.warnings());
             }
             candidate.setReasonsJson(writeJson(reasons));
+            candidate.setEvidenceQuotesJson(writeJson(draft.evidenceQuotes() == null
+                    ? List.of() : draft.evidenceQuotes()));
+            candidate.setUncertaintiesJson(writeJson(draft.uncertainties() == null
+                    ? List.of() : draft.uncertainties()));
+            candidate.setSchemaVersion(extraction.schemaVersion());
+            candidate.setNeedsUserConfirmation(true);
             candidate.setDerivation("AI".equals(extraction.derivation()) ? Derivation.AI : Derivation.RULE);
             candidate.setModelVersion(extraction.modelVersion());
             candidate.setPromptVersion(extraction.promptVersion());
@@ -376,6 +442,10 @@ public class SourceService {
         } catch (RuntimeException e) {
             return ZoneId.of("Asia/Shanghai");
         }
+    }
+
+    private static String zoneOrDefault(String timezone) {
+        return timezone == null || timezone.isBlank() ? "Asia/Shanghai" : timezone;
     }
 
     private Integer parsePage(String pageRef) {

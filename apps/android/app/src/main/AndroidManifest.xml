@@ -70,6 +70,12 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- 远程协助媒体：仅在用户当次显式授权后启动，只发送屏幕视频轨（DTLS-SRTP），不落盘 -->
+        <service
+            android:name=".assist.AssistMediaService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
         <!-- 只读无障碍服务：只读取控件文本与位置，不执行任何操作；系统绑定 -->
         <service
             android:name=".assist.GuidanceAccessibilityService"

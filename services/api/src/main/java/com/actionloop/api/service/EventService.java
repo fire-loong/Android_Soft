@@ -1,11 +1,10 @@
 package com.actionloop.api.service;
 
 import com.actionloop.api.domain.OutboxEvent;
+import com.actionloop.api.domain.ServerEvent;
 import com.actionloop.api.repository.OutboxEventRepository;
 import com.actionloop.api.repository.ServerEventRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -19,8 +18,6 @@ import java.util.UUID;
  */
 @Service
 public class EventService {
-
-    private static final Logger log = LoggerFactory.getLogger(EventService.class);
 
     private final ServerEventRepository serverEventRepository;
     private final OutboxEventRepository outboxEventRepository;
@@ -42,29 +39,27 @@ public class EventService {
             return;
         }
         String json = toJson(payload);
-        try {
-            // 行锁串行化同空间事件序号，避免并发下 (workspace_id, seq) 唯一冲突
-            jdbcTemplate.queryForObject("SELECT id FROM workspaces WHERE id = ? FOR UPDATE",
-                    UUID.class, workspaceId);
-            Long nextSeq = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM server_events WHERE workspace_id = ?",
-                    Long.class, workspaceId);
-            jdbcTemplate.update("""
-                            INSERT INTO server_events
-                                (workspace_id, seq, aggregate_id, aggregate_type, event_type, version, payload_minimized)
-                            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)
-                            """,
-                    workspaceId, nextSeq, aggregateId, aggregateType, eventType, version, json);
-        } catch (RuntimeException e) {
-            // 事件失败不阻断主业务，但必须记录（worker 后续按 outbox 补齐）
-            log.warn("server_event emit failed type={} workspace={}", eventType, workspaceId);
-        }
+        // 行锁串行化同空间事件序号；server_event 与 outbox 必须在同一业务事务内成功或回滚。
+        jdbcTemplate.queryForObject("SELECT id FROM workspaces WHERE id = ? FOR UPDATE",
+                UUID.class, workspaceId);
+        long nextSeq = serverEventRepository.maxSeq(workspaceId) + 1;
+        ServerEvent event = new ServerEvent();
+        event.setWorkspaceId(workspaceId);
+        event.setSeq(nextSeq);
+        event.setAggregateId(aggregateId);
+        event.setAggregateType(aggregateType);
+        event.setEventType(eventType);
+        event.setVersion(version);
+        event.setPayloadMinimized(json);
+        ServerEvent persisted = serverEventRepository.saveAndFlush(event);
+
         OutboxEvent outbox = new OutboxEvent();
         outbox.setAggregateId(aggregateId);
         outbox.setAggregateType(aggregateType);
         outbox.setEventType(eventType);
         outbox.setWorkspaceId(workspaceId);
         outbox.setPayload(json);
+        outbox.setServerEventId(persisted.getId());
         outbox.setCreatedAt(Instant.now());
         outboxEventRepository.save(outbox);
     }

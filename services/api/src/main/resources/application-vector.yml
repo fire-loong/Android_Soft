@@ -1,5 +1,6 @@
-# 仅在确认已安装 pgvector 后启用：--spring.profiles.active=vector
-# 启用后 Flyway 会追加执行 db/migration-vector 下的迁移，为 search_documents 增加 embedding 向量列与 HNSW 索引。
+# pgvector 是默认前置依赖：application.yml 默认已包含 classpath:db/migration-vector，
+# 因此默认部署必须预装 pgvector 扩展，否则 Flyway 启动期会失败（不做静默降级）。
+# 本文件保留仅为兼容历史启动参数 --spring.profiles.active=vector，不再改变默认行为。
 spring:
   flyway:
     locations: classpath:db/migration,classpath:db/migration-vector

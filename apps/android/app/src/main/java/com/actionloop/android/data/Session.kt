@@ -18,6 +18,14 @@ object Session {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // 真机联调：允许通过本地配置覆盖后端地址（如 http://192.168.137.1:8080/api/v1）。
+        // 仅供开发/自托管，用户未显式配置时保持模拟器默认地址。
+        val override = context.applicationContext
+            .getSharedPreferences("actionloop_debug", Context.MODE_PRIVATE)
+            .getString("base_url", null)
+        if (!override.isNullOrBlank()) {
+            baseUrl = override.trim().trimEnd('/')
+        }
     }
 
     var accessToken: String?

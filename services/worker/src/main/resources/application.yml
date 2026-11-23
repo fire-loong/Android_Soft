@@ -1,8 +1,6 @@
-server:
-  port: ${ACTIONLOOP_WORKER_PORT:8081}
-  shutdown: graceful
-
 spring:
+  main:
+    web-application-type: none
   application:
     name: actionloop-worker
   datasource:
@@ -27,6 +25,12 @@ spring:
       port: ${ACTIONLOOP_REDIS_PORT:6379}
       password: ${ACTIONLOOP_REDIS_PASSWORD:}
       timeout: 3000ms
+      repositories:
+        enabled: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
 
 management:
   endpoints:
@@ -41,6 +45,39 @@ management:
 app:
   worker:
     lease-owner: ${HOSTNAME:worker-local}
+    jobs:
+      enabled: true
+    outbox:
+      enabled: true
+  ai:
+    provider: ${ACTIONLOOP_AI_PROVIDER:deterministic}
+    base-url: ${ACTIONLOOP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${ACTIONLOOP_AI_API_KEY:}
+    model: ${ACTIONLOOP_AI_MODEL:qwen-plus}
+    timeout-seconds: ${ACTIONLOOP_AI_TIMEOUT_SECONDS:20}
+    retry-backoff-millis: ${ACTIONLOOP_AI_RETRY_BACKOFF_MILLIS:250}
+    min-confidence-for-reminder: ${ACTIONLOOP_AI_MIN_CONFIDENCE:0.6}
+  ocr:
+    provider: ${ACTIONLOOP_OCR_PROVIDER:maas}
+    base-url: ${ACTIONLOOP_OCR_BASE_URL:https://maas-api.cn-huabei-1.xf-yun.com/v2}
+    api-key: ${ACTIONLOOP_OCR_API_KEY:}
+    model: ${ACTIONLOOP_OCR_MODEL:xoppaddleocrv16}
+    allowed-models: ${ACTIONLOOP_OCR_ALLOWED_MODELS:xoppaddleocrv16,xopdeepseekocr,xophunyuanocr}
+    timeout-seconds: ${ACTIONLOOP_OCR_TIMEOUT_SECONDS:45}
+    retry-backoff-millis: ${ACTIONLOOP_OCR_RETRY_BACKOFF_MILLIS:250}
+  storage:
+    type: ${ACTIONLOOP_STORAGE_TYPE:local}
+    max-file-size-bytes: ${ACTIONLOOP_STORAGE_MAX_FILE_BYTES:52428800}
+    quota-bytes-per-workspace: ${ACTIONLOOP_STORAGE_QUOTA_BYTES:5368709120}
+    upload-ttl-minutes: 60
+    download-ttl-minutes: 10
+    local:
+      root: ${ACTIONLOOP_STORAGE_LOCAL_ROOT:data/storage}
+      public-base-url: ${ACTIONLOOP_STORAGE_PUBLIC_BASE_URL:}
+  sources:
+    allow-http: ${ACTIONLOOP_SOURCES_ALLOW_HTTP:false}
+  websocket:
+    relay-enabled: false
 
 logging:
   level:

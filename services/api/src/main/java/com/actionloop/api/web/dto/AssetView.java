@@ -14,12 +14,13 @@ public record AssetView(
         Long sizeBytes,
         Integer pageCount,
         ScanState scanState,
+        String ocrFailureCode,
         String retentionClass,
         Instant createdAt
 ) {
     public static AssetView of(EvidenceAsset a) {
         return new AssetView(a.getId(), a.getWorkspaceId(), a.getSha256(), a.getMime(),
-                a.getSizeBytes(), a.getPageCount(), a.getScanState(), a.getRetentionClass(),
-                a.getCreatedAt());
+                a.getSizeBytes(), a.getPageCount(), a.getScanState(), a.getOcrFailureCode(),
+                a.getRetentionClass(), a.getCreatedAt());
     }
 }

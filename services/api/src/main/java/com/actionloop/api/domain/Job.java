@@ -31,6 +31,12 @@ public class Job {
     @Column(name = "payload_ref", nullable = false)
     private String payloadRef;
 
+    @Column(name = "workspace_id", columnDefinition = "uuid")
+    private UUID workspaceId;
+
+    @Column(name = "requested_by", columnDefinition = "uuid")
+    private UUID requestedBy;
+
     @Column(nullable = false)
     private String state = "PENDING";
 

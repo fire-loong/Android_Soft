@@ -150,7 +150,8 @@ public class MembershipService {
 
     public void removeMember(UUID workspaceId, UUID actorId, UUID targetUserId) {
         Membership actor = permissionService.requireActiveMember(workspaceId, actorId);
-        Membership target = membershipRepository.findByWorkspaceIdAndUserId(workspaceId, targetUserId)
+        // 与 OCR 成功落库共用成员行锁，保证权限复核和撤权有明确先后关系。
+        Membership target = membershipRepository.findLockedByWorkspaceIdAndUserId(workspaceId, targetUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "目标用户不是该空间成员"));
         boolean self = actorId.equals(targetUserId);
         if (!self) {

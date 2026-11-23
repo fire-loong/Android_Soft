@@ -3,9 +3,12 @@ package com.actionloop.api.service;
 import com.actionloop.api.domain.AssistEvent;
 import com.actionloop.api.domain.AssistSession;
 import com.actionloop.api.domain.AssistSessionState;
+import com.actionloop.api.domain.Membership;
+import com.actionloop.api.domain.MembershipStatus;
 import com.actionloop.api.domain.Role;
 import com.actionloop.api.repository.AssistEventRepository;
 import com.actionloop.api.repository.AssistSessionRepository;
+import com.actionloop.api.repository.MembershipRepository;
 import com.actionloop.api.web.dto.AssistEventView;
 import com.actionloop.api.web.dto.AssistSessionView;
 import com.actionloop.api.web.dto.AssistSignalRequest;
@@ -25,6 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -40,10 +45,12 @@ public class AssistService {
 
     private static final int DEFAULT_EXPIRES_MINUTES = 30;
     private static final int MAX_EXPIRES_MINUTES = 120;
-    private static final int MAX_PAYLOAD_BYTES = 16_384;
+    /** 16KB 用于标注；WebRTC SDP 需要更大预算，但仍远小于任何原始帧大小。 */
+    private static final int MAX_PAYLOAD_BYTES = 32_768;
 
     private final AssistSessionRepository sessionRepository;
     private final AssistEventRepository eventRepository;
+    private final MembershipRepository membershipRepository;
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final EventService eventService;
@@ -60,10 +67,12 @@ public class AssistService {
     private long turnTtlSeconds;
 
     public AssistService(AssistSessionRepository sessionRepository, AssistEventRepository eventRepository,
+                         MembershipRepository membershipRepository,
                          PermissionService permissionService, AuditService auditService,
                          EventService eventService, AssistBroadcaster broadcaster, ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
         this.eventRepository = eventRepository;
+        this.membershipRepository = membershipRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.eventService = eventService;
@@ -235,8 +244,27 @@ public class AssistService {
     }
 
     public List<AssistSessionView> listMine(UUID userId) {
-        return sessionRepository.findByRequesterIdOrHelperIdOrderByCreatedAtDesc(userId, userId)
-                .stream().map(AssistSessionView::of).toList();
+        // 本人发起或已接受的会话
+        Map<UUID, AssistSession> merged = new LinkedHashMap<>();
+        sessionRepository.findByRequesterIdOrHelperIdOrderByCreatedAtDesc(userId, userId)
+                .forEach(s -> merged.put(s.getId(), s));
+        // 同空间的开放邀请（未指定协助者）必须对可信成员可见：
+        // 否则 Android 端生成邀请码后，Web 协助台永远没有“接受”入口，远程协助流程断裂。
+        Instant now = Instant.now();
+        for (Membership m : membershipRepository.findByUserIdAndStatus(userId, MembershipStatus.ACTIVE)) {
+            // 接受协助要求 MEMBER 及以上（与 accept() 的权限校验一致），VIEWER 不展示。
+            if (m.getRole() == Role.VIEWER) continue;
+            List<AssistSession> open = sessionRepository
+                    .findByWorkspaceIdAndHelperIdIsNullAndStateInAndExpiresAtAfterOrderByCreatedAtDesc(
+                            m.getWorkspaceId(),
+                            List.of(AssistSessionState.IDLE, AssistSessionState.CONSENT_PENDING),
+                            now);
+            open.forEach(s -> merged.putIfAbsent(s.getId(), s));
+        }
+        return merged.values().stream()
+                .sorted(Comparator.comparing(AssistSession::getCreatedAt).reversed())
+                .map(AssistSessionView::of)
+                .toList();
     }
 
     public boolean canJoin(UUID sessionId, UUID userId) {

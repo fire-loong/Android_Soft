@@ -8,4 +8,8 @@
     <string name="assist_notif_title">ActionLoop 引导进行中</string>
     <string name="assist_notif_text">高亮当前目标，所有操作仍由你亲自完成。点此停止。</string>
     <string name="assist_notif_stop">停止引导</string>
+    <string name="assist_media_notif_channel">远程协助屏幕共享</string>
+    <string name="assist_media_notif_title">正在向协助者共享屏幕</string>
+    <string name="assist_media_notif_text">仅共享画面，协助者无法点击或输入。敏感页/锁屏/暂停会自动停止发送。点此立即停止。</string>
+    <string name="assist_media_notif_stop">停止共享</string>
 </resources>

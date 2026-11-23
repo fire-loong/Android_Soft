@@ -1,5 +1,6 @@
 package com.actionloop.api.test;
 
+import com.actionloop.api.service.EventService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeAll;
@@ -7,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -20,6 +23,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 集成测试基类：启动随机端口的完整 Spring 上下文，连向 TestInfraSettings 指定的真实 PG/Redis。
@@ -35,6 +39,12 @@ public abstract class AbstractIntegrationTest {
 
     @Autowired
     protected ObjectMapper json;
+
+    @Autowired
+    protected EventService eventService;
+
+    @Autowired
+    protected PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void useApacheHttpClient() {
@@ -171,6 +181,12 @@ public abstract class AbstractIntegrationTest {
             throw new IllegalStateException("create task failed: " + r.status + " " + r.raw);
         }
         return r.json.path("data").path("id").asText();
+    }
+
+    protected void emitWorkspaceEvent(String wsId, String eventType) {
+        UUID workspaceId = UUID.fromString(wsId);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                eventService.emit(workspaceId, workspaceId, "WORKSPACE", eventType, 1, Map.of("event", eventType)));
     }
 
     protected static byte[] utf8(String s) {

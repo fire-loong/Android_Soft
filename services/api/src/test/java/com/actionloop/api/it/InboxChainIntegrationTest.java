@@ -37,6 +37,7 @@ class InboxChainIntegrationTest extends AbstractIntegrationTest {
         share.put("title", "助学金申请通知");
         share.put("text", text);
         share.put("timezone", "Asia/Shanghai");
+        share.put("localOnly", true);
         Resp shareResp = req("POST", "/api/v1/sources/share", token, share, null);
         assertEquals(200, shareResp.status, shareResp.raw);
 
@@ -110,6 +111,7 @@ class InboxChainIntegrationTest extends AbstractIntegrationTest {
         share.put("sourceApp", "com.example.chat");
         share.put("sourceKey", unique("key"));
         share.put("text", "周五前把实验报告发到群里");
+        share.put("localOnly", true);
         Resp shareResp = req("POST", "/api/v1/sources/share", token, share, null);
         assertEquals(200, shareResp.status, shareResp.raw);
         String candidateId = shareResp.json.path("data").path("candidateIds").get(0).asText();
@@ -140,6 +142,7 @@ class InboxChainIntegrationTest extends AbstractIntegrationTest {
         share.put("sourceApp", "com.example.scheduler");
         share.put("sourceKey", unique("key"));
         share.put("text", "11月25日上午9点提交报名表，11月27日下午3点提交缴费单");
+        share.put("localOnly", true);
         Resp shareResp = req("POST", "/api/v1/sources/share", token, share, null);
         assertEquals(200, shareResp.status, shareResp.raw);
         String candidateId = shareResp.json.path("data").path("candidateIds").get(0).asText();

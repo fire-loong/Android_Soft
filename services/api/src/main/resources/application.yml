@@ -30,9 +30,11 @@ spring:
         format_sql: false
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    # 默认包含 pgvector 迁移：未安装 pgvector 时启动会明确失败，不静默降级为关键词检索。
+    locations: classpath:db/migration,classpath:db/migration-vector
     baseline-on-migrate: false
     validate-on-migrate: true
+    out-of-order: true
   data:
     redis:
       host: ${ACTIONLOOP_REDIS_HOST:127.0.0.1}
@@ -88,7 +90,24 @@ app:
     api-key: ${ACTIONLOOP_AI_API_KEY:}
     model: ${ACTIONLOOP_AI_MODEL:qwen-plus}
     timeout-seconds: ${ACTIONLOOP_AI_TIMEOUT_SECONDS:20}
+    retry-backoff-millis: ${ACTIONLOOP_AI_RETRY_BACKOFF_MILLIS:250}
     min-confidence-for-reminder: ${ACTIONLOOP_AI_MIN_CONFIDENCE:0.6}
+    # 实测来自用户提供 MaaS：xop3qwen8bembedding 维度为 768；不是 BGE-M3，不得冒充。
+    embedding-model: ${ACTIONLOOP_EMBEDDING_MODEL:xop3qwen8bembedding}
+    embedding-dim: ${ACTIONLOOP_EMBEDDING_DIM:768}
+    embedding-enabled: ${ACTIONLOOP_EMBEDDING_ENABLED:true}
+    rerank-model: ${ACTIONLOOP_RERANK_MODEL:xop3qwen8breranker}
+    rerank-enabled: ${ACTIONLOOP_RERANK_ENABLED:true}
+    semantic-threshold: ${ACTIONLOOP_SEMANTIC_THRESHOLD:0.20}
+  ocr:
+    # 默认模型不代表自动上传；POST /assets/{id}/ocr 必须逐次 cloudAuthorized=true。
+    provider: ${ACTIONLOOP_OCR_PROVIDER:maas}
+    base-url: ${ACTIONLOOP_OCR_BASE_URL:https://maas-api.cn-huabei-1.xf-yun.com/v2}
+    api-key: ${ACTIONLOOP_OCR_API_KEY:}
+    model: ${ACTIONLOOP_OCR_MODEL:xoppaddleocrv16}
+    allowed-models: ${ACTIONLOOP_OCR_ALLOWED_MODELS:xoppaddleocrv16,xopdeepseekocr,xophunyuanocr}
+    timeout-seconds: ${ACTIONLOOP_OCR_TIMEOUT_SECONDS:45}
+    retry-backoff-millis: ${ACTIONLOOP_OCR_RETRY_BACKOFF_MILLIS:250}
   sources:
     # 官方来源抓取默认只允许 https；SSRF 防护见 SourceFetchService
     allow-http: ${ACTIONLOOP_SOURCES_ALLOW_HTTP:false}
@@ -99,6 +118,9 @@ app:
     ttl-seconds: ${ACTIONLOOP_TURN_TTL_SECONDS:600}
   websocket:
     allowed-origins: ${ACTIONLOOP_WS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+    # API 进程订阅 Redis 空间事件并投递本地 WebSocket；worker 非 Web 上下文显式关闭
+    relay-enabled: ${ACTIONLOOP_WS_RELAY_ENABLED:true}
+    session-recheck-ms: ${ACTIONLOOP_WS_SESSION_RECHECK_MS:30000}
   seed:
     demo: ${ACTIONLOOP_SEED_DEMO:false}
   storage:

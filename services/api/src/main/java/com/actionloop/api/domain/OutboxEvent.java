@@ -43,8 +43,32 @@ public class OutboxEvent {
     @JdbcTypeCode(SqlTypes.JSON)
     private String payload = "{}";
 
+    @Column(name = "server_event_id")
+    private Long serverEventId;
+
     @Column(name = "published_at")
     private Instant publishedAt;
+
+    @Column(name = "attempts", nullable = false)
+    private int attempts = 0;
+
+    @Column(name = "lease_owner")
+    private String leaseOwner;
+
+    @Column(name = "lease_until")
+    private Instant leaseUntil;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
+    @Column(name = "last_error_code")
+    private String lastErrorCode;
+
+    @Column(name = "last_error_at")
+    private Instant lastErrorAt;
+
+    @Column(name = "skipped_at")
+    private Instant skippedAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();

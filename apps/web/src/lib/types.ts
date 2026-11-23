@@ -239,6 +239,7 @@ export interface Candidate {
   title: string
   summary: string | null
   category: string | null
+  rawDueText: string | null
   dueAt: string | null
   dueDate: string | null
   dueTimezone: string | null
@@ -249,9 +250,13 @@ export interface Candidate {
   confidence: number | null
   fieldConfidenceJson: string | null
   reasonsJson: string | null
+  evidenceQuotesJson: string | null
+  uncertaintiesJson: string | null
   derivation: Derivation | null
   modelVersion: string | null
   promptVersion: string | null
+  schemaVersion: string | null
+  needsUserConfirmation: boolean
   status: CandidateStatus
   confirmedTaskId: string | null
   dismissedReason: string | null
@@ -430,6 +435,8 @@ export interface ExportJob {
   downloadPath: string | null
 }
 
+export type ScanState = 'PENDING' | 'OCR_FAILED' | 'PARSE_FAILED' | 'INDEXED'
+
 export interface Asset {
   id: string
   workspaceId: string
@@ -437,8 +444,41 @@ export interface Asset {
   mime: string
   sizeBytes: number
   pageCount: number | null
+  scanState: ScanState
+  ocrFailureCode: string | null
   retentionClass: string
   createdAt: string
+}
+
+/** GET /assets/{id}/ocr：纯文本 OCR 结果，坐标不可用时不伪造版面位置。 */
+export interface OcrResult {
+  id: string
+  assetId: string
+  provider: string
+  model: string
+  promptVersion: string
+  inputSha256: string
+  text: string
+  coordinatesAvailable: boolean
+  createdBy: string
+  createdAt: string
+}
+
+export type JobState = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'DEAD_LETTER'
+
+/** GET /jobs/{id}：不含原始输入与模型密钥的任务状态。 */
+export interface JobStatus {
+  id: string
+  type: string
+  state: JobState
+  workspaceId: string
+  payloadRef: string
+  attempts: number
+  maxAttempts: number
+  lastErrorCode: string | null
+  availableAt: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ServerEvent {
