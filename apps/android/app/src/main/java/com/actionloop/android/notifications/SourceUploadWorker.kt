@@ -1,6 +1,7 @@
 package com.actionloop.android.notifications
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -39,9 +40,11 @@ class SourceUploadWorker(context: Context, params: WorkerParameters) : Coroutine
             ApiClient.shareSource(request)
             Result.success()
         } catch (e: ApiException) {
+            Log.w(TAG, "上传来源失败 code=${e.code} message=${e.message}")
             // 4xx（未授权/空间不存在/校验失败）无法靠重试解决，避免无限重试
             if (e.code.startsWith("HTTP_4") || e.code == "AUTH_INVALID") Result.failure() else retry()
         } catch (e: Exception) {
+            Log.w(TAG, "上传来源异常，将重试", e)
             retry()
         }
     }
@@ -50,6 +53,7 @@ class SourceUploadWorker(context: Context, params: WorkerParameters) : Coroutine
         if (runAttemptCount < 6) Result.retry() else Result.failure()
 
     companion object {
+        private const val TAG = "SourceUpload"
         private const val KEY_WORKSPACE = "workspaceId"
         private const val KEY_TEXT = "text"
         private const val KEY_TITLE = "title"
@@ -88,7 +92,7 @@ class SourceUploadWorker(context: Context, params: WorkerParameters) : Coroutine
 
         fun enqueueNow(context: Context, workspaceId: String, text: String) {
             enqueue(context, workspaceId, packageName = null, sourceKey = "share-${System.currentTimeMillis()}",
-                title = "用户分享", text = text, sourceType = "SHARE_TEXT")
+                title = "用户分享", text = text, sourceType = "SHARE")
         }
     }
 }
