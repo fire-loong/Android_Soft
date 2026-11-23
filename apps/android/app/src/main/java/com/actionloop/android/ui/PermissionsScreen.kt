@@ -14,6 +14,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,7 +70,7 @@ import kotlinx.coroutines.launch
  * 权限中心：通知读取授权 + 按 App 白名单 + 立即同步。
  * 页面明确告知“只读、可随时关闭、敏感通知不上传、不采集屏幕帧”。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PermissionsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -185,7 +187,11 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // 200% 字号下按钮会被挤压成竖排文字：改用可换行布局，宁可换行也不压缩文字。
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = {
                             context.startActivity(
                                 Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -212,7 +218,10 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             Button(onClick = { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
                                 Text(if (notifGranted) "通知权限：已开" else "授权通知")
@@ -255,7 +264,10 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = {
                             context.startActivity(
                                 Intent(
