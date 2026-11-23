@@ -61,6 +61,13 @@ public class Job {
     @Column(name = "last_error_at")
     private Instant lastErrorAt;
 
+    /** 分段任务进度（如长截图 OCR 的第 x/y 段）；单段任务保持 null。 */
+    @Column(name = "progress_current")
+    private Integer progressCurrent;
+
+    @Column(name = "progress_total")
+    private Integer progressTotal;
+
     @Column(name = "idempotency_key")
     private String idempotencyKey;
 

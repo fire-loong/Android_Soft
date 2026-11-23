@@ -1,14 +1,17 @@
 package com.actionloop.api.service;
 
+import com.actionloop.api.ai.LongScreenshotOcr;
 import com.actionloop.api.ai.MaaSOcrProvider;
 import com.actionloop.api.ai.OcrProperties;
 import com.actionloop.api.ai.OcrProvider;
 import com.actionloop.api.domain.EvidenceAsset;
 import com.actionloop.api.domain.Job;
 import com.actionloop.api.domain.OcrResult;
+import com.actionloop.api.domain.OcrSegment;
 import com.actionloop.api.domain.ScanState;
 import com.actionloop.api.repository.EvidenceAssetRepository;
 import com.actionloop.api.repository.OcrResultRepository;
+import com.actionloop.api.repository.OcrSegmentRepository;
 import com.actionloop.api.service.storage.FileStorageProvider;
 import com.actionloop.api.web.dto.OcrRequest;
 import com.actionloop.api.web.dto.OcrResultView;
@@ -24,8 +27,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +45,7 @@ public class OcrService {
 
     private final EvidenceAssetRepository assetRepository;
     private final OcrResultRepository resultRepository;
+    private final OcrSegmentRepository segmentRepository;
     private final FileStorageProvider storage;
     private final OcrProvider provider;
     private final OcrProperties props;
@@ -49,11 +55,13 @@ public class OcrService {
     private final TransactionTemplate transactionTemplate;
 
     public OcrService(EvidenceAssetRepository assetRepository, OcrResultRepository resultRepository,
+                      OcrSegmentRepository segmentRepository,
                       FileStorageProvider storage, OcrProvider provider, OcrProperties props,
                       PermissionService permissionService, AuditService auditService,
                       JobService jobService, PlatformTransactionManager transactionManager) {
         this.assetRepository = assetRepository;
         this.resultRepository = resultRepository;
+        this.segmentRepository = segmentRepository;
         this.storage = storage;
         this.provider = provider;
         this.props = props;
@@ -89,6 +97,13 @@ public class OcrService {
     }
 
     public OcrResultView recognize(UUID userId, UUID assetId, OcrRequest request) {
+        return recognize(userId, assetId, request, null);
+    }
+
+    /**
+     * @param jobId 异步作业 id；仅用于把长截图分段进度写回 jobs，便于前端展示“第 x/y 段”。
+     */
+    public OcrResultView recognize(UUID userId, UUID assetId, OcrRequest request, UUID jobId) {
         permissionService.requireActiveMember(request.workspaceId(), userId);
         EvidenceAsset asset = loadAsset(request.workspaceId(), assetId);
         if (!Boolean.TRUE.equals(request.cloudAuthorized())) {
@@ -101,7 +116,7 @@ public class OcrService {
 
         Optional<OcrResult> cached = findResult(assetId, model);
         if (cached.isPresent()) {
-            return OcrResultView.of(cached.get());
+            return viewWithSegments(cached.get());
         }
         if (!"maas".equalsIgnoreCase(props.getProvider())) {
             throw new BusinessException(ErrorCode.OCR_UNAVAILABLE, "未配置可用的云端 OCR Provider");
@@ -116,9 +131,9 @@ public class OcrService {
         }
         verifyContent(asset, content, request.workspaceId(), userId, model);
 
-        String text;
+        LongScreenshotOcr.Result ocr;
         try {
-            text = provider.recognize(new OcrProvider.OcrInput(content, asset.getMime(), model));
+            ocr = LongScreenshotOcr.recognize(content, asset.getMime(), model, provider, props, jobProgress(jobId));
         } catch (RuntimeException e) {
             BusinessException failure = e instanceof BusinessException business
                     ? business : new BusinessException(ErrorCode.OCR_UNAVAILABLE, "OCR 服务暂不可用");
@@ -132,7 +147,7 @@ public class OcrService {
                 EvidenceAsset current = loadAsset(request.workspaceId(), assetId);
                 Optional<OcrResult> raced = findResult(assetId, model);
                 if (raced.isPresent()) {
-                    return OcrResultView.of(raced.get());
+                    return viewWithSegments(raced.get());
                 }
                 OcrResult result = new OcrResult();
                 result.setAssetId(assetId);
@@ -140,22 +155,37 @@ public class OcrService {
                 result.setModel(model);
                 result.setPromptVersion(MaaSOcrProvider.PROMPT_VERSION);
                 result.setInputSha256(asset.getSha256());
-                result.setText(text);
+                result.setText(ocr.text());
+                result.setImageWidth(ocr.imageWidth());
+                result.setImageHeight(ocr.imageHeight());
+                result.setSegmentCount(Math.max(1, ocr.segments().size()));
                 result.setCoordinatesAvailable(false);
                 result.setCreatedBy(userId);
                 OcrResult saved = resultRepository.saveAndFlush(result);
+                List<OcrSegment> segments = persistSegments(saved.getId(), ocr.segments());
 
                 current.setScanState(ScanState.INDEXED);
                 current.setOcrFailureCode(null);
                 assetRepository.save(current);
+
+                Map<String, Object> metadata = new LinkedHashMap<>();
+                metadata.put("provider", OcrProvider.PROVIDER);
+                metadata.put("model", model);
+                metadata.put("coordinatesAvailable", false);
+                metadata.put("segmented", ocr.segmented());
+                metadata.put("segmentCount", saved.getSegmentCount());
+                metadata.put("droppedLines", ocr.droppedLines());
+                if (ocr.imageWidth() != null && ocr.imageHeight() != null) {
+                    metadata.put("imageWidth", ocr.imageWidth());
+                    metadata.put("imageHeight", ocr.imageHeight());
+                }
                 auditService.record(userId, request.workspaceId(), AuditAction.ASSET_OCR, "asset", assetId.toString(),
-                        AuditAction.RESULT_SUCCESS, Map.of("provider", OcrProvider.PROVIDER, "model", model,
-                                "coordinatesAvailable", false));
-                return OcrResultView.of(saved);
+                        AuditAction.RESULT_SUCCESS, metadata);
+                return OcrResultView.of(saved, segments);
             });
         } catch (DataIntegrityViolationException race) {
             permissionService.requireActiveMember(request.workspaceId(), userId);
-            return findResult(assetId, model).map(OcrResultView::of).orElseThrow(() -> race);
+            return findResult(assetId, model).map(this::viewWithSegments).orElseThrow(() -> race);
         }
     }
 
@@ -163,8 +193,49 @@ public class OcrService {
         permissionService.requireActiveMember(workspaceId, userId);
         loadAsset(workspaceId, assetId);
         String model = resolveModel(requestedModel);
-        return findResult(assetId, model).map(OcrResultView::of)
+        return findResult(assetId, model).map(this::viewWithSegments)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "该模型尚未生成 OCR 结果"));
+    }
+
+    private List<OcrSegment> persistSegments(UUID resultId, List<LongScreenshotOcr.SegmentOcr> recognized) {
+        if (recognized == null || recognized.isEmpty()) {
+            return List.of();
+        }
+        List<OcrSegment> segments = new ArrayList<>(recognized.size());
+        for (LongScreenshotOcr.SegmentOcr item : recognized) {
+            OcrSegment segment = new OcrSegment();
+            segment.setResultId(resultId);
+            segment.setSegmentIndex(item.index());
+            segment.setYOffset(item.yOffset());
+            segment.setHeight(item.height());
+            segment.setText(item.text());
+            segments.add(segment);
+        }
+        return segmentRepository.saveAll(segments);
+    }
+
+    private OcrResultView viewWithSegments(OcrResult result) {
+        List<OcrSegment> segments = result.getSegmentCount() != null && result.getSegmentCount() > 1
+                ? segmentRepository.findByResultIdOrderBySegmentIndexAsc(result.getId())
+                : List.of();
+        return OcrResultView.of(result, segments);
+    }
+
+    private LongScreenshotOcr.Progress jobProgress(UUID jobId) {
+        if (jobId == null) {
+            return null;
+        }
+        return new LongScreenshotOcr.Progress() {
+            @Override
+            public void onPlanned(int total) {
+                jobService.updateProgress(jobId, 0, total);
+            }
+
+            @Override
+            public void onSegmentDone(int done, int total) {
+                jobService.updateProgress(jobId, done, total);
+            }
+        };
     }
 
     private void verifyContent(EvidenceAsset asset, byte[] content, UUID workspaceId, UUID userId, String model) {

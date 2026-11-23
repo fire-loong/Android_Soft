@@ -108,6 +108,15 @@ app:
     allowed-models: ${ACTIONLOOP_OCR_ALLOWED_MODELS:xoppaddleocrv16,xopdeepseekocr,xophunyuanocr}
     timeout-seconds: ${ACTIONLOOP_OCR_TIMEOUT_SECONDS:45}
     retry-backoff-millis: ${ACTIONLOOP_OCR_RETRY_BACKOFF_MILLIS:250}
+    # 长截图分段 OCR（指导书 B-01）：仅当高 ≥ 阈值且高/宽比达到阈值时切片，普通图片仍一次识别。
+    segment-enabled: ${ACTIONLOOP_OCR_SEGMENT_ENABLED:true}
+    long-image-min-height: ${ACTIONLOOP_OCR_LONG_MIN_HEIGHT:1600}
+    long-image-aspect-ratio: ${ACTIONLOOP_OCR_LONG_ASPECT_RATIO:2.0}
+    segment-height: ${ACTIONLOOP_OCR_SEGMENT_HEIGHT:1400}
+    # 相邻段重叠像素：保证跨段文字至少在一段内完整出现，合并时按重叠带去重。
+    segment-overlap: ${ACTIONLOOP_OCR_SEGMENT_OVERLAP:180}
+    max-segments: ${ACTIONLOOP_OCR_MAX_SEGMENTS:12}
+    max-image-pixels: ${ACTIONLOOP_OCR_MAX_IMAGE_PIXELS:60000000}
   sources:
     # 官方来源抓取默认只允许 https；SSRF 防护见 SourceFetchService
     allow-http: ${ACTIONLOOP_SOURCES_ALLOW_HTTP:false}

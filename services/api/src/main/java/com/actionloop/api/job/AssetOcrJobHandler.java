@@ -35,7 +35,7 @@ public class AssetOcrJobHandler implements JobHandler {
             UUID assetId = execution.requiredUuid("assetId");
             String model = execution.requiredText("model");
             ocrService.recognize(execution.requestedBy(), assetId,
-                    new OcrRequest(workspaceId, true, model));
+                    new OcrRequest(workspaceId, true, model), execution.id());
         } finally {
             if (requestId != null) {
                 MDC.remove("requestId");

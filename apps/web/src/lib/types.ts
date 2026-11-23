@@ -450,6 +450,15 @@ export interface Asset {
   createdAt: string
 }
 
+/** 长截图单段：index/yOffset/height 用于回到原图定位，text 为该段原始识别文本。 */
+export interface OcrSegment {
+  id: string
+  index: number
+  yOffset: number
+  height: number
+  text: string
+}
+
 /** GET /assets/{id}/ocr：纯文本 OCR 结果，坐标不可用时不伪造版面位置。 */
 export interface OcrResult {
   id: string
@@ -459,6 +468,10 @@ export interface OcrResult {
   promptVersion: string
   inputSha256: string
   text: string
+  imageWidth?: number | null
+  imageHeight?: number | null
+  segmentCount?: number
+  segments?: OcrSegment[]
   coordinatesAvailable: boolean
   createdBy: string
   createdAt: string
@@ -466,7 +479,7 @@ export interface OcrResult {
 
 export type JobState = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'DEAD_LETTER'
 
-/** GET /jobs/{id}：不含原始输入与模型密钥的任务状态。 */
+/** GET /jobs/{id}：不含原始输入与模型密钥的任务状态；分段任务带第 x/y 段进度。 */
 export interface JobStatus {
   id: string
   type: string
@@ -476,6 +489,8 @@ export interface JobStatus {
   attempts: number
   maxAttempts: number
   lastErrorCode: string | null
+  progressCurrent?: number | null
+  progressTotal?: number | null
   availableAt: string
   createdAt: string
   updatedAt: string

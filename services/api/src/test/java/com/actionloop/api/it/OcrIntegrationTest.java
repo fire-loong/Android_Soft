@@ -18,6 +18,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.sql.Timestamp;
@@ -29,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -137,6 +143,49 @@ class OcrIntegrationTest extends AbstractIntegrationTest {
                 owner.get("access"), null, null);
         assertEquals("INDEXED", asset.json.path("data").path("scanState").asText());
         assertArrayEquals(IMAGE, download(owner.get("access"), workspaceId, assetId));
+    }
+
+    @Test
+    void longScreenshotIsSegmentedWithOrderOffsetsAndMergedText() throws Exception {
+        byte[] longPng = longPng(400, 2400);
+        AtomicInteger calls = new AtomicInteger();
+        when(provider.recognize(any())).thenAnswer(invocation -> calls.getAndIncrement() == 0
+                ? "课程通知标题\n截止 11 月 30 日"
+                : "截止 11 月 30 日\n提交 PDF 到学习通");
+        var owner = register();
+        String workspaceId = createWorkspace(owner.get("access"), unique("ocr-long"));
+        String assetId = upload(owner.get("access"), workspaceId, longPng, "image/png", "long.png");
+
+        Resp accepted = req("POST", ocrPath(assetId), owner.get("access"), body(workspaceId, true, null), null);
+        assertEquals(202, accepted.status, accepted.raw);
+        assertTrue(dispatcher.dispatchOne());
+        assertEquals("SUCCEEDED", jobState(assetId));
+        verify(provider, times(2)).recognize(any());
+
+        Resp response = req("GET", ocrPath(assetId) + "?workspaceId=" + workspaceId, owner.get("access"), null, null);
+        assertEquals(200, response.status, response.raw);
+        var data = response.json.path("data");
+        assertEquals("课程通知标题\n截止 11 月 30 日\n提交 PDF 到学习通", data.path("text").asText());
+
+        assertEquals(2, data.path("segmentCount").asInt());
+        assertEquals(400, data.path("imageWidth").asInt());
+        assertEquals(2400, data.path("imageHeight").asInt());
+        assertEquals(2, data.path("segments").size());
+        assertEquals(0, data.path("segments").get(0).path("index").asInt());
+        assertEquals(0, data.path("segments").get(0).path("yOffset").asInt());
+        assertEquals(1400, data.path("segments").get(0).path("height").asInt());
+        assertEquals(1, data.path("segments").get(1).path("index").asInt());
+        assertEquals(1220, data.path("segments").get(1).path("yOffset").asInt());
+        assertEquals(1180, data.path("segments").get(1).path("height").asInt());
+        assertFalse(data.path("coordinatesAvailable").asBoolean(true));
+
+        assertEquals(2, count("SELECT count(*) FROM ocr_segments s "
+                + "JOIN ocr_results r ON r.id = s.result_id WHERE r.asset_id = ?", assetId));
+        Map<String, Object> progress = jdbcTemplate.queryForMap(
+                "SELECT progress_current, progress_total FROM jobs WHERE payload_ref = ? "
+                        + "ORDER BY created_at DESC LIMIT 1", ref(assetId));
+        assertEquals(2, ((Number) progress.get("progress_current")).intValue());
+        assertEquals(2, ((Number) progress.get("progress_total")).intValue());
     }
 
     @Test
@@ -338,18 +387,37 @@ class OcrIntegrationTest extends AbstractIntegrationTest {
     }
 
     private String upload(String token, String workspaceId) {
-        String sha = sha256(IMAGE);
+        return upload(token, workspaceId, IMAGE, "image/png", "notice.png");
+    }
+
+    private String upload(String token, String workspaceId, byte[] content, String mime, String fileName) {
+        String sha = sha256(content);
         Resp init = req("POST", "/api/v1/assets/uploads", token,
-                Map.of("workspaceId", workspaceId, "sha256", sha, "sizeBytes", IMAGE.length,
-                        "mime", "image/png", "fileName", "notice.png"), null);
+                Map.of("workspaceId", workspaceId, "sha256", sha, "sizeBytes", content.length,
+                        "mime", mime, "fileName", fileName), null);
         assertEquals(200, init.status, init.raw);
         String sessionId = init.json.path("data").path("sessionId").asText();
-        Resp put = putBytes("/api/v1/assets/uploads/" + sessionId + "/content", token, IMAGE);
+        Resp put = putBytes("/api/v1/assets/uploads/" + sessionId + "/content", token, content);
         assertEquals(200, put.status, put.raw);
         Resp complete = req("POST", "/api/v1/assets/uploads/" + sessionId + "/complete", token,
-                Map.of("sha256", sha, "sizeBytes", IMAGE.length), null);
+                Map.of("sha256", sha, "sizeBytes", content.length), null);
         assertEquals(200, complete.status, complete.raw);
         return complete.json.path("data").path("id").asText();
+    }
+
+    private static byte[] longPng(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, width, height);
+        } finally {
+            graphics.dispose();
+        }
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ImageIO.write(image, "png", out);
+            return out.toByteArray();
+        }
     }
 
     private byte[] download(String token, String workspaceId, String assetId) {

@@ -38,6 +38,16 @@ public class OcrResult extends TimestampedEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String text;
 
+    @Column(name = "image_width")
+    private Integer imageWidth;
+
+    @Column(name = "image_height")
+    private Integer imageHeight;
+
+    /** 1 表示整图一次识别；大于 1 表示长截图分段识别，段明细见 ocr_segments。 */
+    @Column(name = "segment_count", nullable = false)
+    private Integer segmentCount = 1;
+
     @Column(name = "coordinates_available", nullable = false)
     private boolean coordinatesAvailable = false;
 

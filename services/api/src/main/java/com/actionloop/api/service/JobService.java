@@ -52,6 +52,15 @@ public class JobService {
         return repository.findById(id).orElseThrow();
     }
 
+    /** 分段任务（如长截图 OCR）的可见进度；独立自动提交，避免长外部调用期间进度被事务隔离。 */
+    public void updateProgress(UUID jobId, int current, int total) {
+        if (jobId == null || total <= 0) {
+            return;
+        }
+        jdbcTemplate.update("UPDATE jobs SET progress_current = ?, progress_total = ?, updated_at = now() WHERE id = ?",
+                Math.max(0, Math.min(current, total)), total, jobId);
+    }
+
     @Transactional(readOnly = true)
     public Job getAuthorized(UUID workspaceId, UUID jobId, UUID userId) {
         permissionService.requireActiveMember(workspaceId, userId);
@@ -79,6 +88,8 @@ public class JobService {
         job.setLeaseUntil(null);
         job.setLastErrorCode(null);
         job.setLastErrorAt(null);
+        job.setProgressCurrent(null);
+        job.setProgressTotal(null);
         job.setUpdatedAt(Instant.now());
         return repository.save(job);
     }

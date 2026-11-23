@@ -180,7 +180,11 @@ export default function Memory() {
 
             <div>
               <Typography.Title level={5}>3. 内容定位</Typography.Title>
-              <EvidenceList evidence={contextQuery.data.evidence} workspaceId={workspaceId!} />
+              <EvidenceList
+                evidence={contextQuery.data.evidence}
+                workspaceId={workspaceId!}
+                initialQuery={submitted}
+              />
             </div>
 
             <div>

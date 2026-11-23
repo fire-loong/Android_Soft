@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -388,18 +391,29 @@ fun PermissionsScreen(onBack: () -> Unit) {
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     seen.toList().sorted().forEach { pkg ->
+                        val checked = pkg in allowed
+                        // 整行可切换：点击文字或开关都会落到同一 toggleable，避免开关本体过小点不中。
                         Card(Modifier.fillMaxWidth()) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
-                                Text(pkg, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                Switch(
-                                    checked = pkg in allowed,
-                                    onCheckedChange = { checked ->
-                                        scope.launch {
-                                            AllowlistStore.setAllowed(context, pkg, checked)
-                                            allowed = AllowlistStore.allowed(context)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .toggleable(
+                                        value = checked,
+                                        role = Role.Switch,
+                                        onValueChange = { next ->
+                                            scope.launch {
+                                                AllowlistStore.setAllowed(context, pkg, next)
+                                                allowed = AllowlistStore.allowed(context)
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Text(pkg, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                // onCheckedChange = null：点击由整行 toggleable 统一处理，避免双重触发。
+                                Switch(checked = checked, onCheckedChange = null)
                             }
                         }
                     }

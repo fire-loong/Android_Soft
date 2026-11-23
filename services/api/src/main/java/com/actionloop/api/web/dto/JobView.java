@@ -15,13 +15,16 @@ public record JobView(
         Integer attempts,
         Integer maxAttempts,
         String lastErrorCode,
+        Integer progressCurrent,
+        Integer progressTotal,
         Instant availableAt,
         Instant createdAt,
         Instant updatedAt
 ) {
     public static JobView of(Job job) {
         return new JobView(job.getId(), job.getType(), job.getState(), job.getWorkspaceId(), job.getPayloadRef(),
-                job.getAttempts(), job.getMaxAttempts(), job.getLastErrorCode(), job.getAvailableAt(),
-                job.getCreatedAt(), job.getUpdatedAt());
+                job.getAttempts(), job.getMaxAttempts(), job.getLastErrorCode(),
+                job.getProgressCurrent(), job.getProgressTotal(),
+                job.getAvailableAt(), job.getCreatedAt(), job.getUpdatedAt());
     }
 }

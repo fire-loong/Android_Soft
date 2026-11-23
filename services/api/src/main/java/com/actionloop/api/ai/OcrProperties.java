@@ -24,6 +24,15 @@ public class OcrProperties {
     private int timeoutSeconds = 45;
     private long retryBackoffMillis = 250;
 
+    /** 长截图分段：仅在“高/宽比与绝对高度都达到阈值”时切片，普通图片保持单次识别原样。 */
+    private boolean segmentEnabled = true;
+    private int longImageMinHeight = 1600;
+    private double longImageAspectRatio = 2.0;
+    private int segmentHeight = 1400;
+    private int segmentOverlap = 180;
+    private int maxSegments = 12;
+    private long maxImagePixels = 60_000_000L;
+
     public String getProvider() {
         return provider;
     }
@@ -83,5 +92,61 @@ public class OcrProperties {
 
     public void setRetryBackoffMillis(long retryBackoffMillis) {
         this.retryBackoffMillis = retryBackoffMillis;
+    }
+
+    public boolean isSegmentEnabled() {
+        return segmentEnabled;
+    }
+
+    public void setSegmentEnabled(boolean segmentEnabled) {
+        this.segmentEnabled = segmentEnabled;
+    }
+
+    public int getLongImageMinHeight() {
+        return longImageMinHeight;
+    }
+
+    public void setLongImageMinHeight(int longImageMinHeight) {
+        this.longImageMinHeight = longImageMinHeight;
+    }
+
+    public double getLongImageAspectRatio() {
+        return longImageAspectRatio;
+    }
+
+    public void setLongImageAspectRatio(double longImageAspectRatio) {
+        this.longImageAspectRatio = longImageAspectRatio;
+    }
+
+    public int getSegmentHeight() {
+        return segmentHeight;
+    }
+
+    public void setSegmentHeight(int segmentHeight) {
+        this.segmentHeight = segmentHeight;
+    }
+
+    public int getSegmentOverlap() {
+        return segmentOverlap;
+    }
+
+    public void setSegmentOverlap(int segmentOverlap) {
+        this.segmentOverlap = segmentOverlap;
+    }
+
+    public int getMaxSegments() {
+        return maxSegments;
+    }
+
+    public void setMaxSegments(int maxSegments) {
+        this.maxSegments = maxSegments;
+    }
+
+    public long getMaxImagePixels() {
+        return maxImagePixels;
+    }
+
+    public void setMaxImagePixels(long maxImagePixels) {
+        this.maxImagePixels = maxImagePixels;
     }
 }

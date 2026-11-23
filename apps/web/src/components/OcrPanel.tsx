@@ -5,6 +5,7 @@ import { assetApi, getErrorCode, getErrorMessage, jobApi, ocrApi } from '../lib/
 import { describeOcrFailure } from '../lib/aiProvenance'
 import { formatDateTime } from '../lib/format'
 import type { Asset, JobStatus, OcrResult } from '../lib/types'
+import OcrSegmentPreview from './OcrSegmentPreview'
 
 const POLL_INTERVAL_MS = 1500
 const POLL_TIMEOUT_MS = 180_000
@@ -25,7 +26,15 @@ function isNoResult(error: unknown): boolean {
  * - 失败或未识别时给出可执行降级路径，不静默当作成功；
  * - 云端识别必须由用户逐次显式授权。
  */
-export default function OcrPanel({ assetId, workspaceId }: { assetId: string; workspaceId: string }) {
+export default function OcrPanel({
+  assetId,
+  workspaceId,
+  initialQuery
+}: {
+  assetId: string
+  workspaceId: string
+  initialQuery?: string
+}) {
   const { message, modal } = App.useApp()
   const queryClient = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
@@ -161,6 +170,10 @@ export default function OcrPanel({ assetId, workspaceId }: { assetId: string; wo
   const asset = assetQuery.data
   const result = ocrQuery.data
   const running = !!jobId || enqueueMut.isPending || retryMut.isPending
+  const segments = result?.segments ?? []
+  const progressTotal = jobQuery.data?.progressTotal ?? 0
+  const segmentProgress =
+    progressTotal > 1 ? `${jobQuery.data?.progressCurrent ?? 0}/${progressTotal}` : null
 
   return (
     <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
@@ -168,7 +181,7 @@ export default function OcrPanel({ assetId, workspaceId }: { assetId: string; wo
         <Tag color="blue">OCR 文字识别</Tag>
         <Tag>{asset?.mime ?? '未知类型'}</Tag>
         {asset?.scanState && <Tag color={asset.scanState === 'OCR_FAILED' ? 'red' : 'default'}>{asset.scanState}</Tag>}
-        {running && <Tag color="processing">识别中…</Tag>}
+        {running && <Tag color="processing">{segmentProgress ? `识别中 ${segmentProgress} 段` : '识别中…'}</Tag>}
       </Space>
 
       {ocrQuery.isLoading ? (
@@ -186,6 +199,7 @@ export default function OcrPanel({ assetId, workspaceId }: { assetId: string; wo
                 <Tag>{result.provider}</Tag>
                 <Tag>模型 {result.model}</Tag>
                 <Tag>提示词 {result.promptVersion}</Tag>
+                {segments.length > 1 && <Tag color="purple">长截图分段 {segments.length} 段</Tag>}
                 <Tag color={result.coordinatesAvailable ? 'green' : 'gold'}>
                   {result.coordinatesAvailable ? '有版面坐标' : '仅纯文本，无版面坐标'}
                 </Tag>
@@ -195,6 +209,14 @@ export default function OcrPanel({ assetId, workspaceId }: { assetId: string; wo
               </Space>
             }
           />
+          {segments.length > 1 && (
+            <OcrSegmentPreview
+              assetId={assetId}
+              workspaceId={workspaceId}
+              result={result}
+              initialQuery={initialQuery}
+            />
+          )}
           <Typography.Paragraph
             style={{ whiteSpace: 'pre-wrap', marginBottom: 0, maxHeight: 280, overflow: 'auto' }}
           >
@@ -205,8 +227,12 @@ export default function OcrPanel({ assetId, workspaceId }: { assetId: string; wo
         <Alert
           type="info"
           showIcon
-          message="正在识别图片文字…"
-          description="完成后本区域会自动更新；失败会明确提示，不会把失败当作成功。"
+          message={segmentProgress ? `正在分段识别长截图（第 ${segmentProgress} 段）` : '正在识别图片文字…'}
+          description={
+            segmentProgress
+              ? '逐段识别后按重叠带合并；完成后显示全文与分段定位，失败会明确提示。'
+              : '完成后本区域会自动更新；失败会明确提示，不会把失败当作成功。'
+          }
         />
       ) : asset?.scanState === 'OCR_FAILED' ? (
         <Alert

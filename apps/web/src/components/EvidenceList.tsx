@@ -12,10 +12,12 @@ function rangeLabel(e: EvidenceRef): string {
 /** 证据引用列表：只展示原文引文与坐标，不做任何推断（指导书 4.3 / 5.3）。 */
 export default function EvidenceList({
   evidence,
-  workspaceId
+  workspaceId,
+  initialQuery
 }: {
   evidence: EvidenceRef[]
   workspaceId: string
+  initialQuery?: string
 }) {
   const { message } = App.useApp()
 
@@ -56,7 +58,9 @@ export default function EvidenceList({
                 坐标：{e.bboxJson}
               </Typography.Text>
             )}
-            {e.assetId && <OcrPanel assetId={e.assetId} workspaceId={workspaceId} />}
+            {e.assetId && (
+              <OcrPanel assetId={e.assetId} workspaceId={workspaceId} initialQuery={initialQuery} />
+            )}
           </Space>
         </List.Item>
       )}
