@@ -15,6 +15,7 @@
     "lint": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" lint",
     "typecheck": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" typecheck",
     "test": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" test",
+    "test:contract": "node tests/contract/openapi-contract.mjs",
     "test:e2e": "pnpm --filter @actionloop/web test:e2e"
   }
 }
