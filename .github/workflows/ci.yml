@@ -110,6 +110,85 @@ jobs:
       - name: Test
         run: pnpm --filter @actionloop/web test
 
+  web-e2e:
+    name: Web E2E (Chromium / real API)
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+    env:
+      ACTIONLOOP_E2E_DB_HOST: 127.0.0.1
+      ACTIONLOOP_E2E_DB_PORT: '5433'
+      ACTIONLOOP_E2E_DB_NAME: actionloop_e2e
+      ACTIONLOOP_E2E_DB_USER: postgres
+      ACTIONLOOP_E2E_DB_PASSWORD: actionloop_e2e
+      ACTIONLOOP_E2E_REDIS_HOST: 127.0.0.1
+      ACTIONLOOP_E2E_REDIS_PORT: '6379'
+      ACTIONLOOP_E2E_REDIS_PASSWORD: ''
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: actionloop_e2e
+          POSTGRES_DB: actionloop_e2e
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Make wrapper executable
+        working-directory: services
+        run: chmod +x mvnw
+      - name: Package executable API jar
+        working-directory: services
+        run: ./mvnw -pl api -am package -DskipTests -B -ntp
+      - name: Install Chromium
+        run: pnpm --filter @actionloop/web exec playwright install --with-deps chromium
+      - name: Run real Web E2E
+        run: pnpm test:e2e
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-web-e2e-report
+          path: apps/web/playwright-report
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Playwright traces and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-web-e2e-results
+          path: apps/web/test-results
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   desktop:
     name: Desktop (Tauri / cargo check)
     runs-on: windows-latest
