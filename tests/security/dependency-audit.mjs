@@ -75,9 +75,12 @@ function runDependencyList(modules) {
   const isWin = process.platform === 'win32'
   const mvnw = isWin ? 'mvnw.cmd' : './mvnw'
   try {
+    // 先 install 再 dependency:list：情景化解析是同一 Maven 会话内完成的，
+    // 否则 api 依赖的 shared、worker 依赖的 api(library classifier) 只有 POM 没有 jar，
+    // 在干净机器（CI）上会 DependencyResolutionException
     return execFileSync(
       mvnw,
-      ['-pl', modules.join(','), '-am', 'dependency:list', '-DincludeScope=runtime', '-B', '-ntp'],
+      ['-pl', modules.join(','), '-am', 'install', '-DskipTests', 'dependency:list', '-DincludeScope=runtime', '-B', '-ntp'],
       { cwd: join(ROOT, 'services'), encoding: 'utf8', shell: isWin, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
     )
   } catch (e) {
@@ -92,23 +95,10 @@ function runDependencyList(modules) {
   }
 }
 
-/**
- * 后端 runtime 依赖（group:artifact@version）。
- * worker 依赖 api 的 `library` classifier，未先 package 时无法解析；
- * 此时退回 shared+api 的并集 —— worker 的第三方依赖经核对是 api 的子集（仅额外 spring-boot-starter）。
- */
+/** 后端 runtime 依赖（group:artifact@version），shared/api/worker 全量含传递依赖。 */
 function collectMavenDependencies() {
-  let out
-  let coverage
-  try {
-    out = runDependencyList(['shared', 'api', 'worker'])
-    coverage = 'shared + api + worker（含传递依赖）'
-  } catch (e) {
-    log(`  ${e.message.split('\n')[0]}`)
-    log('  worker 的 api library classifier 未安装，退回扫描 shared + api 的 runtime 并集')
-    out = runDependencyList(['shared', 'api'])
-    coverage = 'shared + api runtime 并集（worker 第三方依赖为 api 子集，仅额外 spring-boot-starter）'
-  }
+  const out = runDependencyList(['shared', 'api', 'worker'])
+  const coverage = 'shared + api + worker（含传递依赖）'
   const seen = new Map()
   for (const line of out.split(/\r?\n/)) {
     const m = line.match(/\[INFO\]\s+([\w.\-]+):([\w.\-]+):(jar|war|pom):([\w.\-+]+):(compile|runtime|provided)/)
