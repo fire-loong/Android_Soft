@@ -49,6 +49,11 @@ app:
       enabled: true
     outbox:
       enabled: true
+    account-deletion:
+      # 注销冷却到期后的清除扫描（指导书 15.5）；默认每 10 分钟一次
+      enabled: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_ENABLED:true}
+      interval-ms: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_INTERVAL_MS:600000}
+      lock-ttl-seconds: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_LOCK_TTL:300}
   ai:
     provider: ${ACTIONLOOP_AI_PROVIDER:deterministic}
     base-url: ${ACTIONLOOP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

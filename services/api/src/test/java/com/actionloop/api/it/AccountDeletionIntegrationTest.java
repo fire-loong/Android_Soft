@@ -28,15 +28,23 @@ class AccountDeletionIntegrationTest extends AbstractIntegrationTest {
         assertTrue(Instant.parse(scheduledAt).isAfter(Instant.now().plus(Duration.ofDays(6))),
                 "默认冷却 7 天，计划清除时间应在一周附近: " + scheduledAt);
 
-        // 重复请求幂等：不延长冷却期
+        // 重复请求幂等：不延长冷却期（数据库按微秒存储，允许 1s 内的精度差）
         Resp again = req("DELETE", "/api/v1/me", u.get("access"), Map.of("password", "Passw0rd!"), null);
         assertEquals(202, again.status, again.raw);
-        assertEquals(scheduledAt, again.json.path("data").path("scheduledAt").asText());
+        assertTrue(withinOneSecond(scheduledAt, again.json.path("data").path("scheduledAt").asText()),
+                "重复请求不得延长冷却期: " + again.raw);
 
         Resp me = req("GET", "/api/v1/me", u.get("access"), null, null);
         assertEquals(200, me.status, me.raw);
         assertEquals("PENDING", me.json.path("data").path("accountDeletion").path("state").asText());
-        assertEquals(scheduledAt, me.json.path("data").path("accountDeletion").path("scheduledAt").asText());
+        assertTrue(withinOneSecond(scheduledAt,
+                        me.json.path("data").path("accountDeletion").path("scheduledAt").asText()),
+                "GET /me 应返回同一计划清除时间: " + me.raw);
+    }
+
+    private boolean withinOneSecond(String expected, String actual) {
+        long delta = Math.abs(Duration.between(Instant.parse(expected), Instant.parse(actual)).toMillis());
+        return delta <= 1000;
     }
 
     @Test
