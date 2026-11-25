@@ -27,6 +27,9 @@ class ExportIntegrationTest extends AbstractIntegrationTest {
     private JobDispatcher dispatcher;
 
     @Autowired
+    private com.actionloop.api.service.ExportService exportService;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Map<String, Object> exportBody(String ws, String password) {
@@ -93,8 +96,7 @@ class ExportIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void memberCannotExportAndStrangerCannotDownload() {
-        Map<String, String> owner = register();
+    void memberCannotExportAndStrangerCannotDownload() {        Map<String, String> owner = register();
         String ownerToken = owner.get("access");
         String ws = createWorkspace(ownerToken, unique("导出权限空间"));
 
@@ -120,5 +122,33 @@ class ExportIntegrationTest extends AbstractIntegrationTest {
         Resp hidden = req("GET", "/api/v1/exports/" + exportId + "/download",
                 stranger.get("access"), null, null);
         assertEquals(404, hidden.status, "非成员不得获取导出: " + hidden.raw);
+    }
+
+    @Test
+    void expiredExportsArePurgedFromStorage() {
+        Map<String, String> owner = register();
+        String token = owner.get("access");
+        String ws = createWorkspace(token, unique("导出台账空间"));
+        Resp created = req("POST", "/api/v1/exports", token, exportBody(ws, "Passw0rd!"), null);
+        assertEquals(202, created.status, created.raw);
+        String exportId = created.json.path("data").path("id").asText();
+        for (int i = 0; i < 50; i++) {
+            dispatcher.dispatchOne();
+            Resp polled = req("GET", "/api/v1/exports/" + exportId, token, null, null);
+            if ("READY".equals(polled.json.path("data").path("state").asText())) {
+                break;
+            }
+        }
+
+        jdbcTemplate.update("update exports set expires_at = now() - interval '1 hour' where id = ?",
+                java.util.UUID.fromString(exportId));
+        int purged = exportService.purgeExpired(java.time.Instant.now());
+        assertTrue(purged >= 1, "过期导出应被清理，实际=" + purged);
+
+        Resp download = req("GET", "/api/v1/exports/" + exportId + "/download", token, null, null);
+        assertEquals(410, download.status, download.raw);
+        assertEquals("SOURCE_EXPIRED", errCode(download), download.raw);
+        Resp view = req("GET", "/api/v1/exports/" + exportId, token, null, null);
+        assertEquals("EXPIRED", view.json.path("data").path("state").asText(), view.raw);
     }
 }

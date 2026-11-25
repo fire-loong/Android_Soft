@@ -57,6 +57,11 @@ app:
   export:
     # 导出对象短期有效（指导书 13.2）：worker 生成时写入 expiresAt
     expiry-hours: ${ACTIONLOOP_EXPORT_EXPIRY_HOURS:24}
+    cleanup:
+      # 到期后删除对象文件（默认每小时扫一次）
+      enabled: ${ACTIONLOOP_EXPORT_CLEANUP_ENABLED:true}
+      interval-ms: ${ACTIONLOOP_EXPORT_CLEANUP_INTERVAL_MS:3600000}
+      lock-ttl-seconds: ${ACTIONLOOP_EXPORT_CLEANUP_LOCK_TTL:300}
   ai:
     provider: ${ACTIONLOOP_AI_PROVIDER:deterministic}
     base-url: ${ACTIONLOOP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

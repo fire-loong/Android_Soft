@@ -96,7 +96,7 @@ public class ExportService {
      */
     @Transactional
     public void process(UUID exportId) {
-        ExportJob job = exportJobRepository.findById(exportId).orElse(null);
+        ExportJob job = exportJobRepository.findWithLockById(exportId).orElse(null);
         if (job == null || !"PENDING".equals(job.getState())) {
             return;
         }
@@ -132,16 +132,22 @@ public class ExportService {
 
     public byte[] download(UUID userId, UUID exportId) {
         ExportJob job = loadReadable(userId, exportId);
+        if ("EXPIRED".equals(job.getState())) {
+            throw new BusinessException(ErrorCode.SOURCE_EXPIRED, "导出已过期，请重新生成");
+        }
         if (!"READY".equals(job.getState()) || job.getStorageKey() == null) {
             throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION, "导出尚未完成");
         }
         if (job.getExpiresAt() != null && job.getExpiresAt().isBefore(Instant.now())) {
+            // 先删对象再落 EXPIRED：删除失败时保留 READY，用户重试仍可下载，不会出现“已标记过期但文件还在”
+            try {
+                storage.deleteObject(job.getStorageKey());
+            } catch (Exception e) {
+                log.warn("export object delete failed export={}: {}", job.getId(), e.toString());
+            }
             job.setState("EXPIRED");
             job.setUpdatedAt(Instant.now());
             exportJobRepository.save(job);
-            if (job.getStorageKey() != null) {
-                storage.deleteObject(job.getStorageKey());
-            }
             throw new BusinessException(ErrorCode.SOURCE_EXPIRED, "导出已过期，请重新生成");
         }
         try (var in = storage.getObject(job.getStorageKey())) {
@@ -149,6 +155,30 @@ public class ExportService {
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "导出文件不可用");
         }
+    }
+
+    /**
+     * 定期清理已过期的导出对象（指导书 13.2「短期下载」）：README/UI 承诺“过期自动删除”，
+     * 不能只在用户点击下载时才删除。返回处理数量；单个账户/对象失败不影响其它记录。
+     */
+    public int purgeExpired(Instant now) {
+        List<ExportJob> due = exportJobRepository.findByStateAndExpiresAtBefore("READY", now);
+        int purged = 0;
+        for (ExportJob job : due) {
+            if (job.getStorageKey() != null) {
+                try {
+                    storage.deleteObject(job.getStorageKey());
+                } catch (Exception e) {
+                    log.warn("expired export object delete failed export={}: {}", job.getId(), e.toString());
+                    continue;
+                }
+            }
+            job.setState("EXPIRED");
+            job.setUpdatedAt(now);
+            exportJobRepository.save(job);
+            purged++;
+        }
+        return purged;
     }
 
     /** 指导书 11.7：仅请求者与空间管理员可读取导出。*/

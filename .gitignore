@@ -48,6 +48,7 @@ ai/models/*.safetensors
 
 # ---- Dev infra binaries / data (user-local) ----
 .dev-infra/
+data/storage/
 *.log
 
 # ---- IDE / OS ----
