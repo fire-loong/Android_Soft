@@ -6,7 +6,7 @@
 
 ## 0. 录制前置
 
-1. 启动依赖：PG 5433、Redis 6379 已运行；`.env.local` 含非占位 `ACTIONLOOP_JWT_SECRET`，本地联调设 `ACTIONLOOP_RL_REGISTER_MAX=0`、`ACTIONLOOP_RL_LOGIN_MAX=0`、`ACTIONLOOP_RL_REFRESH_MAX=0`。
+1. 启动依赖：PG 5433、Redis 6379 已运行（若用 `docker-compose.local.yml`，其默认 PG 端口为 5432，需设置 `ACTIONLOOP_DB_PORT=5432`）；`.env.local` 含非占位 `ACTIONLOOP_JWT_SECRET`，本地联调设 `ACTIONLOOP_RL_REGISTER_MAX=0`、`ACTIONLOOP_RL_LOGIN_MAX=0`、`ACTIONLOOP_RL_REFRESH_MAX=0`。
 2. 启动 API：`java -jar services/api/target/actionloop-api.jar`；启动 Web：`pnpm --filter @actionloop/web dev`（5173）。
 3. 使用全新注册账号演示，避免真实个人信息；演示数据全部为自造脱敏文本。
 4. 录屏分辨率 1080p，浏览器缩放 100%，关闭通知弹窗与个人书签栏。
@@ -16,13 +16,13 @@
 | # | 时长 | 画面 | 操作 | 状态 |
 |---|---|---|---|---|
 | 0 | 20s | 问题陈述：通知/截图/流程/协作/长辈五个断点 | 标题页字幕，无产品画面 | 可录 |
-| 1 | 60s | 收件箱：一条课程提交通知生成候选 | 打开「收件箱」→ 候选卡展示标题/截止/置信度 → 点「查看原文证据」→ 高亮原文片段 → 点「确认并创建事项」 | 已可录（E2E 主链路） |
+| 1 | 60s | 「待确认收件箱」：一条课程提交通知生成候选 | 打开「待确认收件箱」→ 候选卡展示标题/截止/置信度 → 点「查看原文证据」→ 高亮原文片段 → 点「确认并创建事项」 | 已可录（E2E 主链路） |
 | 2 | 40s | 低置信日期门槛 | 同一文本含两个日期 → 候选标记需核对 → 直接「确认创建」被拒并提示 → 选择日期后再次确认成功 | 已可录（E2E 第二场景） |
 | 3 | 50s | 事项详情与步骤 | 打开事项 → 查看步骤/材料 → 标记步骤完成 | 已可录 |
 | 4 | 50s | 完成凭证与核验 | 点「提交完成凭证」→ 上传回执 → 协同成员在核验卡点「通过核验」→ 事项状态变为已核验完成 | 已可录（E2E 主链路） |
-| 5 | 40s | 个人记忆检索 | 在「记忆」搜索关键词 → 结果返回该截图/原文 → 点回关联事项 | 已可录（搜索 API 集成测试） |
+| 5 | 40s | 「个人记忆」检索 | 在「个人记忆」搜索关键词 → 结果返回该截图/原文 → 点回关联事项 | 已可录（搜索 API 集成测试） |
 | 6 | 45s | 流程与来源版本 | 「流程工作室」展示步骤 + 来源链接 + 版本状态；触发一次来源复核，显示失效/仍有效结果 | 部分可录：UI 可展示，来源复核以 API 证据（`SourceRecheckIntegrationTest`）讲解 |
-| 7 | 45s | 协同空间 | 邀请成员 → 分配步骤 → 评论 → 成员提交凭证 → 驳回后重新提交 | 部分可录：Web 界面 + `PermissionIntegrationTest`/`ReviewEvidenceIntegrationTest` 证据；跨账号实时同步需双浏览器 |
+| 7 | 45s | 协同空间 | 邀请成员 → 分配步骤 → 评论 → 成员提交凭证 → 核验通过或驳回（驳回保留历史） | 部分可录：Web 界面 + `PermissionIntegrationTest`/`ReviewEvidenceIntegrationTest` 证据；跨账号实时同步需双浏览器 |
 | 8 | 50s | Android 通知采集 → 候选 | 真机开启通知使用权 → 收到测试通知 → 本地生成候选 → 确认建事项 | **待补录**（需真机） |
 | 9 | 50s | 跨 App 引导与停止 | 真机在受控测试 App 内启动引导 → 高亮目标控件 → 用户自己点击 → 点「停止」后高亮与采集立即终止 | **待补录**（需真机 + 受控测试 App） |
 | 10 | 40s | 远程协助 | 求助者分享屏幕 → 协助者标注 → 到期自动结束 → 停止后无法恢复 | **待补录**（需两台真机 + Coturn） |
@@ -72,7 +72,7 @@
 | 契约 | `tests/contract/openapi-contract.mjs`、`asyncapi-contract.mjs` |
 | 性能 | `tests/performance/api-smoke.js`（k6） |
 | 备份恢复 | `tests/ops/backup-restore-drill.mjs`（`pnpm test:ops:backup`） |
-| 全量 CI | GitHub Actions run #7（`da25391`）8/8 success |
+| 全量 CI | GitHub Actions run #10（`3f90529`）8/8 success：https://github.com/fire-loong/Android_Soft/actions/runs/45609020568 |
 | 验收映射与未验证项 | `docs/competition/acceptance-matrix.md` |
 
 ## 5. 待补录所需条件
