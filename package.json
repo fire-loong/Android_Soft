@@ -19,6 +19,7 @@
     "test:contract:asyncapi": "node tests/contract/asyncapi-contract.mjs",
     "test:joint": "node tests/joint/cross-client-consistency.mjs",
     "test:ops:backup": "node tests/ops/backup-restore-drill.mjs",
+    "test:ops:fault": "node tests/ops/fault-injection-drill.mjs",
     "test:security:deps": "node tests/security/dependency-audit.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
     "release:sbom": "node scripts/release-sbom.mjs",

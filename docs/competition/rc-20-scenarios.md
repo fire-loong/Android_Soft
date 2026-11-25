@@ -18,7 +18,8 @@ pnpm test:contract:asyncapi   # AsyncAPI 结构
 pnpm test:joint               # API 层跨端一致性（6 场景）
 pnpm test:security:deps       # 依赖漏洞（CRITICAL/HIGH 未评估即失败）
 pnpm release:sbom             # CycloneDX SBOM 生成与自检
-pnpm test:ops:backup          # 备份恢复演练
+pnpm test:ops:backup          # 备份恢复演练（pg_dump -Fc → 空库 pg_restore → 校表）
+pnpm test:ops:fault           # 故障注入：杀 API 进程 → 重启 → 校验数据保留与 Idempotency-Key 重放
 pnpm test:perf                # k6 冒烟（需 API 以 RL_*_MAX=0 启动）
 pnpm test:e2e                 # Playwright 全栈（需 PG + JWT_SECRET + 8080 API）
 cd services && ./mvnw -pl api -am test   # 后端 147 项集成/单测（MaaS 凭证缺失时 1 项跳过）
@@ -36,7 +37,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | R03 | AsyncAPI 实时契约 | `pnpm test:contract:asyncapi` | 2 channel / 4 message 结构完整，`$ref` 可解析 | `tests/contract/asyncapi-contract.mjs` | 自动化通过 |
 | R04 | 跨端一致性（越权/并发/幂等） | `pnpm test:joint` | 6 场景全通过：他人事项 403/404 不泄露标题、旧 baseVersion 409、同 Idempotency-Key 不重复建 | `tests/joint/cross-client-consistency.mjs` | 自动化通过（API 层，非真机联测） |
 | R05 | 依赖漏洞与 SBOM | `pnpm test:security:deps` + `pnpm release:sbom` | 0 未评估 CRITICAL/HIGH；放行项带理由与到期日；SBOM ≥50 组件且字段完整 | `tests/security/dependency-audit.mjs`、`scripts/release-sbom.mjs` | 自动化通过 |
-| R06 | 备份恢复 | `pnpm test:ops:backup` | pg_dump -Fc → 空库 pg_restore → 逐表行数与整表 md5 一致 | `tests/ops/backup-restore-drill.mjs`（36 表 / 2946 行） | 部分（同实例新库；异地介质与干净机器未验证） |
+| R06 | 备份恢复与杀进程 | `pnpm test:ops:backup`：pg_dump -Fc → 空库 pg_restore → 逐表行数与整表 md5 一致；`pnpm test:ops:fault`：硬杀 API → 重启 → 事项/状态/令牌保留、同 Idempotency-Key 重放返回同一事项 | 不丢已确认数据，幂等记录跨重启有效 | `tests/ops/backup-restore-drill.mjs`（36 表 / 2946 行）、`tests/ops/fault-injection-drill.mjs`（3/3 通过） | 部分（备份为同实例新库、杀进程为本机；异地介质与 DB 重启未验证） |
 | R07 | 性能冒烟 | `pnpm test:perf` | 按端点失败率 0；读接口 p95 在基线内 | `tests/performance/api-smoke.js` | 自动化通过（冒烟级，非容量验收） |
 
 ### B 组：产品闭环（26.1，需人工/真机/凭证）
@@ -73,6 +74,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 26.2 离线重放与并发 | R04 |
 | 26.2 AI 人工确认与降级 | R09、R20 |
 | 26.2 监控/审计/备份/导出 | R06、R15 |
+| 26.2 进程被杀/离线恢复 | R06（杀进程）、R04（幂等重放） |
 | 26.2 真机与干净安装 | R16、R17（未完成，阻断） |
 | 26.3 禁自动操作 | R18 |
 | 26.3 敏感页与撤权 | R17 |
@@ -84,6 +86,6 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 
 | RC 编号 | 日期 | 提交 | 自动化结果（R01–R07） | 人工/真机结果（R08–R20） | 未通过项与阻断级别 | 执行人 |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-2026-11-25 | 2026-11-25 | `47c4116` | R01–R07 自动化全部通过（后端 147 项/1 跳过、Web 32 项、E2E 2 项、joint 6/6、契约 PASS、审计 0 未评估、SBOM 159 组件、备份 36 表一致、k6 170 迭代 0 失败） | R11、R14、R18 自动化通过；R08–R10、R12、R13、R15、R19、R20 部分；R16、R17 需真机 | 阻断：R16、R17（缺 ≥2 台不同厂商真机）；非阻断：R06 异地备份、R20 真实 MaaS 故障注入 | 开发（本机） |
+| RC-2026-11-25 | 2026-11-25 | `47c4116` | R01–R07 自动化全部通过（后端 147 项/1 跳过、Web 32 项、E2E 2 项、joint 6/6、契约 PASS、审计 0 未评估、SBOM 159 组件、备份 36 表一致、杀进程 3/3、k6 170 迭代 0 失败） | R11、R14、R18 自动化通过；R08–R10、R12、R13、R15、R19、R20 部分；R16、R17 需真机 | 阻断：R16、R17（缺 ≥2 台不同厂商真机）；非阻断：R06 异地备份、R20 真实 MaaS 故障注入 | 开发（本机） |
 
 > 填写要求：日期用实际执行日；提交写被测 commit；结果只写「通过 / 部分（缺什么）/ FAIL / BLOCKED（缺什么）」；不得把未跑写成通过。

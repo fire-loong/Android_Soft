@@ -464,6 +464,74 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  resilience:
+    name: Resilience (kill/restart + idempotency)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend]
+    env:
+      ACTIONLOOP_API_PORT: '8080'
+      ACTIONLOOP_DB_HOST: 127.0.0.1
+      ACTIONLOOP_DB_PORT: '5433'
+      ACTIONLOOP_DB_USER: postgres
+      ACTIONLOOP_DB_PASSWORD: actionloop_drill
+      ACTIONLOOP_DRILL_DB_NAME: actionloop_drill
+      ACTIONLOOP_REDIS_HOST: 127.0.0.1
+      ACTIONLOOP_REDIS_PORT: '6379'
+      ACTIONLOOP_REDIS_PASSWORD: ''
+      # CI 专用非占位密钥（>=32 字节）；生产不得复用，真实环境由 Secret 注入
+      ACTIONLOOP_JWT_SECRET: ci_drill_only_jwt_secret_0123456789abcdef
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: actionloop_drill
+          POSTGRES_DB: actionloop_drill
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Make wrapper executable
+        working-directory: services
+        run: chmod +x mvnw
+      - name: Package executable API jar
+        working-directory: services
+        run: ./mvnw -pl api -am package -DskipTests -B -ntp
+      # 真实杀进程：API 起→建事项→SIGKILL→重启→校验数据与幂等；基础设施未就绪退出 2
+      - name: Run kill/restart drill
+        run: node tests/ops/fault-injection-drill.mjs
+      - name: Upload drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-fault-injection
+          path: build/ops/
+          if-no-files-found: warn
+          retention-days: 14
+
   android:
     name: Android (assembleDebug)
     runs-on: ubuntu-latest
