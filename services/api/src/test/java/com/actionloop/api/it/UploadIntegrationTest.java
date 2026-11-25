@@ -72,10 +72,85 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
     }
 
     private String initUpload(String token, String ws, String sha, int size) {
+        return initUpload(token, ws, sha, size, "text/plain", "f.txt");
+    }
+
+    private String initUpload(String token, String ws, String sha, int size, String mime, String fileName) {
         Resp r = req("POST", "/api/v1/assets/uploads", token,
                 Map.of("workspaceId", ws, "sha256", sha, "sizeBytes", size,
-                        "mime", "text/plain", "fileName", "f.txt"), null);
+                        "mime", mime, "fileName", fileName), null);
         assertEquals(200, r.status, r.raw);
         return r.json.path("data").path("sessionId").asText();
+    }
+
+    /** 假扩展名：声明 PDF，实际是 PNG → 415 UNSUPPORTED_MEDIA_TYPE（指导书 B-04）。 */
+    @Test
+    void completeRejectsContentThatDoesNotMatchDeclaredType() throws Exception {
+        var u = register();
+        String ws = createWorkspace(u.get("access"), "up-fake-ext");
+        byte[] png = new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 7, 7, 7};
+        String sha = sha256(png);
+        String sessionId = initUpload(u.get("access"), ws, sha, png.length, "application/pdf", "notice.pdf");
+
+        assertEquals(200, putBytes("/api/v1/assets/uploads/" + sessionId + "/content", u.get("access"), png).status);
+        Resp comp = req("POST", "/api/v1/assets/uploads/" + sessionId + "/complete", u.get("access"),
+                Map.of("sha256", sha, "sizeBytes", png.length), null);
+
+        assertEquals(415, comp.status, comp.raw);
+        assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+    }
+
+    /** 可执行文件伪装成文本 → 415，且不生成证据记录。 */
+    @Test
+    void completeRejectsExecutableContentEvenWhenDeclaredText() throws Exception {
+        var u = register();
+        String ws = createWorkspace(u.get("access"), "up-exe");
+        byte[] exe = new byte[]{'M', 'Z', (byte) 0x90, 0, 3, 0, 0, 0, 4};
+        String sha = sha256(exe);
+        String sessionId = initUpload(u.get("access"), ws, sha, exe.length, "text/plain", "readme.txt");
+
+        assertEquals(200, putBytes("/api/v1/assets/uploads/" + sessionId + "/content", u.get("access"), exe).status);
+        Resp comp = req("POST", "/api/v1/assets/uploads/" + sessionId + "/complete", u.get("access"),
+                Map.of("sha256", sha, "sizeBytes", exe.length), null);
+
+        assertEquals(415, comp.status, comp.raw);
+        assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+    }
+
+    /** 含宏工程 vbaProject.bin 的 docx 容器 → 415，不执行、不落证据。 */
+    @Test
+    void completeRejectsMacroEnabledOfficeContainer() throws Exception {
+        var u = register();
+        String ws = createWorkspace(u.get("access"), "up-macro");
+        byte[] docm = zip(
+                "word/document.xml", "<w:document/>",
+                "word/vbaProject.bin", "macro-bytes");
+        String sha = sha256(docm);
+        String docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        String sessionId = initUpload(u.get("access"), ws, sha, docm.length, docxMime, "material.docm");
+
+        assertEquals(200, putBytes("/api/v1/assets/uploads/" + sessionId + "/content", u.get("access"), docm).status);
+        Resp comp = req("POST", "/api/v1/assets/uploads/" + sessionId + "/complete", u.get("access"),
+                Map.of("sha256", sha, "sizeBytes", docm.length), null);
+
+        assertEquals(415, comp.status, comp.raw);
+        assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+    }
+
+    private static String sha256(byte[] content) throws Exception {
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(content);
+        return java.util.HexFormat.of().formatHex(digest);
+    }
+
+    private static byte[] zip(String... nameAndBody) throws Exception {
+        var out = new java.io.ByteArrayOutputStream();
+        try (var zip = new java.util.zip.ZipOutputStream(out)) {
+            for (int i = 0; i + 1 < nameAndBody.length; i += 2) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(nameAndBody[i]));
+                zip.write(nameAndBody[i + 1].getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return out.toByteArray();
     }
 }

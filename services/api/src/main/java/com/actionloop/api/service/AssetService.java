@@ -70,6 +70,10 @@ public class AssetService {
         if (req.sizeBytes() > props.getMaxFileSizeBytes()) {
             throw new BusinessException(ErrorCode.FILE_TOO_LARGE, "文件超过大小上限");
         }
+        String declaredReject = AssetContentInspector.rejectDeclared(req.mime());
+        if (declaredReject != null) {
+            throw new BusinessException(ErrorCode.UNSUPPORTED_MEDIA_TYPE, declaredReject);
+        }
         permissionService.requireAtLeastRole(req.workspaceId(), userId, Role.MEMBER);
         long used = assetRepository.sumSizeBytesByWorkspaceId(req.workspaceId());
         if (used + req.sizeBytes() > props.getQuotaBytesPerWorkspace()) {
@@ -158,6 +162,23 @@ public class AssetService {
         } catch (java.io.IOException e) {
             fail(session, "哈希计算失败");
             throw new BusinessException(ErrorCode.ASSET_INTEGRITY_MISMATCH, "无法计算文件哈希");
+        }
+
+        // 内容类型嗅探（指导书 11.6：不能信任扩展名/声明 MIME）。在哈希通过后执行，失败关闭。
+        AssetContentInspector.Inspection inspection;
+        try {
+            inspection = inspectStoredContent(session);
+        } catch (java.io.IOException e) {
+            fail(session, "内容类型校验读取失败");
+            throw new BusinessException(ErrorCode.ASSET_INTEGRITY_MISMATCH, "无法读取文件内容进行类型校验");
+        }
+        if (inspection.rejected()) {
+            fail(session, "内容类型校验未通过：" + inspection.rejection());
+            throw new BusinessException(ErrorCode.UNSUPPORTED_MEDIA_TYPE, inspection.rejection());
+        }
+        // 声明为通用二进制时，以真实检测类型落库（否则 OCR/预览无法识别图片）。
+        if (inspection.detectedMime() != null) {
+            session.setMime(inspection.detectedMime());
         }
 
         String finalKey = session.getStorageKey();
@@ -262,6 +283,34 @@ public class AssetService {
     private EvidenceAsset loadAsset(UUID workspaceId, UUID assetId) {
         return assetRepository.findByWorkspaceIdAndId(workspaceId, assetId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "证据不存在"));
+    }
+
+    /**
+     * 读取临时对象做内容嗅探：先看魔数，zip 容器再按包内条目区分 docx/xlsx/pptx 并拒绝宏工程，
+     * 最后与 init 声明类型比对（指导书 11.6 / 15.4 B-04）。
+     */
+    private AssetContentInspector.Inspection inspectStoredContent(UploadSession session) throws java.io.IOException {
+        AssetContentInspector.Inspection head;
+        try (InputStream in = storage.getObject(session.getTempKey())) {
+            head = AssetContentInspector.inspect(in);
+        }
+        if (head.rejected()) {
+            return head;
+        }
+        AssetContentInspector.Inspection effective = head;
+        if ("application/zip".equals(head.detectedMime())) {
+            try (InputStream in = storage.getObject(session.getTempKey())) {
+                effective = AssetContentInspector.inspectZipContainer(in);
+            }
+            if (effective.rejected()) {
+                return effective;
+            }
+        }
+        String mismatch = AssetContentInspector.matchDeclared(session.getMime(), effective.detectedMime());
+        if (mismatch != null) {
+            return new AssetContentInspector.Inspection(effective.detectedMime(), mismatch);
+        }
+        return effective;
     }
 
     private void fail(UploadSession session, String reason) {

@@ -18,7 +18,7 @@
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
-| B-04 | 恶意文件 | 上传类型与大小校验、宏不执行 | 无专项用例 | 未验证（需压缩炸弹/假扩展名样本） |
+| B-04 | 恶意文件 | `AssetContentInspector`（魔数嗅探、可执行/OLE 拒绝、OOXML 宏工程拒绝）、`AssetService`（流式大小上限、服务端从不解压） | `AssetContentInspectorTest`（6 项）、`UploadIntegrationTest`（假扩展名/可执行伪装/含 `vbaProject.bin` 的 docx 均 415） | 已验证（自动化） |
 | B-05 | 检索权限 | `HybridSearchService`（权限前置过滤） | `HybridSearchBehaviorIntegrationTest`、`PermissionIntegrationTest` | 已验证（自动化） |
 | B-06 | 删除一致性 | `SoftDeleteIntegrationTest`、签名 URL 过期 | `SoftDeleteIntegrationTest` | 部分（旧签名到期后访问未单独断言） |
 | C-01 | 官方流程 | `ProcessService` / 版本与步骤 | `ProcessAssistIntegrationTest` | 部分（条件材料真实两页来源未跑） |
@@ -47,10 +47,10 @@
 
 ## 汇总（共 35 条）
 
-- 已验证（自动化）：8 条 —— A-01、A-04、B-01、B-05、C-04、D-02、D-03、E-06。
+- 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06。
 - 部分：20 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证。
-- 未验证：7 条 —— A-05、A-06、B-04、E-07、X-02、X-03、X-05。
-- 阻断发布的未验证项：B-04 恶意文件、E-07 弱网、X-02 TURN 故障、X-03 备份恢复（按 17.5 属 RC 前置条件）。
+- 未验证：6 条 —— A-05、A-06、E-07、X-02、X-03、X-05。
+- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障、X-03 备份恢复（按 17.5 属 RC 前置条件）。
 
 ## 待用户/环境提供
 
