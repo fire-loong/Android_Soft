@@ -53,10 +53,19 @@ export interface Workspace {
   joinedAt: string
 }
 
-/** GET /me 返回：当前用户 + 其空间列表（后端 MeResponse）。 */
+/** 账户注销状态（后端 AccountDeletionView）：NONE 无计划，PENDING 冷却中。 */
+export interface AccountDeletionView {
+  state: 'NONE' | 'PENDING'
+  requestedAt?: string
+  scheduledAt?: string
+  cooldownDays: number
+}
+
+/** GET /me 返回：当前用户 + 其空间列表 + 注销状态（后端 MeResponse）。 */
 export interface MeResponse {
   user: User
   workspaces: Workspace[]
+  accountDeletion?: AccountDeletionView
 }
 
 export interface WorkspaceDetail {

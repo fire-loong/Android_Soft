@@ -1,19 +1,21 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Button,
   Card,
   Descriptions,
   Input,
+  Modal,
   Select,
   Space,
   Table,
   Tag,
-  Typography
+  Typography,
+  message
 } from 'antd'
 import QueryState from '../components/QueryState'
-import { auditApi, exportApi } from '../lib/api'
+import { accountApi, auditApi, authApi, exportApi, getErrorMessage } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatDateTime } from '../lib/format'
 import type { AuditEntry } from '../lib/types'
@@ -40,9 +42,48 @@ function resultColor(result: string): string {
 export default function Audit() {
   const { currentWorkspace, user } = useAuth()
   const workspaceId = currentWorkspace?.id
+  const queryClient = useQueryClient()
   const [objectType, setObjectType] = useState<string | undefined>(undefined)
   const [objectId, setObjectId] = useState('')
   const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [deletionOpen, setDeletionOpen] = useState(false)
+  const [deletionPassword, setDeletionPassword] = useState('')
+  const [deletionBusy, setDeletionBusy] = useState(false)
+
+  const meQuery = useQuery({
+    queryKey: ['me'],
+    queryFn: () => authApi.me()
+  })
+  const deletion = meQuery.data?.accountDeletion
+  const deletionPending = deletion?.state === 'PENDING'
+
+  const requestDeletion = async () => {
+    setDeletionBusy(true)
+    try {
+      await accountApi.requestDeletion(deletionPassword)
+      message.success('已进入注销冷却期，可随时取消')
+      setDeletionOpen(false)
+      setDeletionPassword('')
+      await queryClient.invalidateQueries({ queryKey: ['me'] })
+    } catch (err) {
+      message.error(getErrorMessage(err, '申请注销失败'))
+    } finally {
+      setDeletionBusy(false)
+    }
+  }
+
+  const cancelDeletion = async () => {
+    setDeletionBusy(true)
+    try {
+      await accountApi.cancelDeletion()
+      message.success('已取消账户注销')
+      await queryClient.invalidateQueries({ queryKey: ['me'] })
+    } catch (err) {
+      message.error(getErrorMessage(err, '取消注销失败'))
+    } finally {
+      setDeletionBusy(false)
+    }
+  }
 
   const auditQuery = useQuery({
     queryKey: ['audit', workspaceId, objectType, objectId, cursor],
@@ -97,6 +138,78 @@ export default function Audit() {
           设备与会话管理当前仅有服务端刷新令牌轮换与设备记录；面向用户的设备列表与远程注销界面尚未提供（见未完成项）。
         </Typography.Text>
       </Card>
+
+      <Card
+        size="small"
+        title="账户注销"
+        extra={
+          <Tag color={deletionPending ? 'orange' : 'default'}>
+            {deletionPending ? '冷却中' : '未申请'}
+          </Tag>
+        }
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <Typography.Text type="secondary">
+            注销需再次输入密码；提交后进入 {deletion?.cooldownDays ?? 7} 天冷却期，期间账户仍可使用且可随时取消。
+            冷却结束后将删除你名下的个人空间、对象存储内容与设备会话，账户转为不可登录的匿名墓碑。
+          </Typography.Text>
+          {deletionPending ? (
+            <>
+              <Alert
+                type="warning"
+                showIcon
+                message={`计划清除时间：${deletion?.scheduledAt ? formatDateTime(deletion.scheduledAt) : '—'}`}
+                description="若你仍是含其他成员的共享空间所有者，需先转让所有权，否则到期不会清除并会记录拒绝审计。"
+              />
+              <Space>
+                <Button danger loading={deletionBusy} onClick={() => void cancelDeletion()}>
+                  取消注销
+                </Button>
+                <Button onClick={() => void meQuery.refetch()}>刷新状态</Button>
+              </Space>
+            </>
+          ) : (
+            <Space wrap>
+              <Button danger onClick={() => setDeletionOpen(true)}>
+                申请注销账户
+              </Button>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                建议先在“协同空间 → 数据与导出”导出需要保留的数据。
+              </Typography.Text>
+            </Space>
+          )}
+        </Space>
+      </Card>
+
+      <Modal
+        title="申请注销账户"
+        open={deletionOpen}
+        okText="确认申请注销"
+        cancelText="取消"
+        okButtonProps={{ danger: true, disabled: !deletionPassword.trim(), loading: deletionBusy }}
+        onOk={() => void requestDeletion()}
+        onCancel={() => {
+          if (deletionBusy) return
+          setDeletionOpen(false)
+          setDeletionPassword('')
+        }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="注销不可逆"
+            description={`提交后进入 ${deletion?.cooldownDays ?? 7} 天冷却期，期间可随时取消；冷却结束后个人空间与数据将被删除。`}
+          />
+          <Typography.Text>请输入当前密码以确认身份：</Typography.Text>
+          <Input.Password
+            placeholder="当前密码"
+            autoComplete="current-password"
+            value={deletionPassword}
+            onChange={(e) => setDeletionPassword(e.target.value)}
+          />
+        </Space>
+      </Modal>
 
       <Card
         size="small"

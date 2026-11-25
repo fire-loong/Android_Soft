@@ -250,3 +250,40 @@ test('多日期低置信候选未核对时拒绝创建，显式核对后成功�
   const reminders = (await remindersResponse.json()) as ApiEnvelope<unknown[]>
   expect(reminders.data).toHaveLength(0)
 })
+
+test('账户注销需密码确认进入冷却期，取消后恢复可用', async ({ page, request }) => {
+  const id = runId()
+  const user = await registerAndGetPersonalWorkspace(page, request, id)
+
+  await page.goto('/audit')
+  const card = page.locator('.ant-card').filter({ hasText: '账户注销' }).first()
+  await expect(card).toContainText('未申请')
+  await card.getByRole('button', { name: '申请注销账户' }).click()
+
+  const modal = page.locator('.ant-modal-content').filter({ hasText: '申请注销账户' })
+  await expect(modal).toBeVisible()
+  await modal.getByPlaceholder('当前密码').fill('Passw0rd!')
+  await modal.getByRole('button', { name: '确认申请注销' }).click()
+
+  await expect(page.locator('.ant-message')).toContainText('冷却期')
+  await expect(card).toContainText('冷却中')
+  await expect(card).toContainText('计划清除时间')
+
+  const pendingResponse = await request.get(`${API_BASE}/me`, { headers: authHeaders(user.token) })
+  expect(pendingResponse.status()).toBe(200)
+  const pending = (await pendingResponse.json()) as ApiEnvelope<{
+    accountDeletion: { state: string; scheduledAt?: string }
+  }>
+  expect(pending.data.accountDeletion.state).toBe('PENDING')
+  expect(pending.data.accountDeletion.scheduledAt).toBeTruthy()
+
+  await card.getByRole('button', { name: '取消注销' }).click()
+  await expect(page.locator('.ant-message')).toContainText('已取消')
+  await expect(card).toContainText('未申请')
+
+  const cancelledResponse = await request.get(`${API_BASE}/me`, { headers: authHeaders(user.token) })
+  const cancelled = (await cancelledResponse.json()) as ApiEnvelope<{
+    accountDeletion: { state: string }
+  }>
+  expect(cancelled.data.accountDeletion.state).toBe('NONE')
+})

@@ -2,6 +2,7 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { notifyAuthCleared } from './authEvents'
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from './authTokens'
 import type {
+  AccountDeletionView,
   ApiResponse,
   ApiErrorBody,
   Asset,
@@ -163,6 +164,16 @@ export const authApi = {
   login: (req: LoginPayload) => unwrap<Session>(api.post<ApiResponse<Session>>('/auth/login', req)),
   me: () => unwrap<MeResponse>(api.get<ApiResponse<MeResponse>>('/me')),
   logout: () => unwrap<void>(api.post<ApiResponse<void>>('/auth/logout'))
+}
+
+// 账户注销（指导书 13.2/15.5）：请求需密码重认证，进入冷却期；冷却期内可取消。
+export const accountApi = {
+  requestDeletion: (password: string, reason?: string) =>
+    unwrap<AccountDeletionView>(
+      api.delete<ApiResponse<AccountDeletionView>>('/me', { data: reason ? { password, reason } : { password } })
+    ),
+  cancelDeletion: () =>
+    unwrap<AccountDeletionView>(api.post<ApiResponse<AccountDeletionView>>('/me/deletion/cancel'))
 }
 
 // ---------------- Workspace ----------------
