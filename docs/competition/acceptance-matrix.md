@@ -27,10 +27,10 @@
 | C-04 | SSRF | `SourceFetchService`（逐跳校验/内网拒绝/robots/限频/1MB） | `SourceFetchServiceTest` | 已验证（自动化） |
 | C-05 | 来源变更 | 复查生成新版本、历史不被篡改 | `SourceRecheckIntegrationTest` | 部分（无真实公网页面变更验证） |
 | D-01 | 邀请权限 | `WorkspaceService` / 邀请状态机 | `AuthIntegrationTest`、`PermissionIntegrationTest` | 部分（过期/转发链接用例未覆盖） |
-| D-02 | 水平越权 | 服务端 ACL + 不泄露存在性 | `PermissionIntegrationTest` | 已验证（自动化） |
+| D-02 | 水平越权 | 服务端 ACL + 不泄露存在性 | `PermissionIntegrationTest`、`tests/joint/cross-client-consistency.mjs`（Android 身份读他人事项被拒且不泄露标题） | 已验证（自动化） |
 | D-03 | 完成核验 | 完成/复核状态机与历史保留 | `TaskFlowIntegrationTest`、`ReviewEvidenceIntegrationTest` | 已验证（自动化） |
-| D-04 | 并发冲突 | 版本号/乐观锁 | `TaskStateMachineTest` | 部分（两端同时改派/改期未压测） |
-| D-05 | 离线幂等 | `IdempotencyFilter` / `sync_operation` | `IdempotencyIntegrationTest`、`SyncOperation` 相关用例 | 部分（进程被杀/断网恢复未注入） |
+| D-04 | 并发冲突 | 版本号/乐观锁 | `TaskStateMachineTest`、`tests/joint/cross-client-consistency.mjs`（旧 baseVersion 返回 409） | 部分（双端同时改派/改期未压测） |
+| D-05 | 离线幂等 | `IdempotencyFilter` / `sync_operation` | `IdempotencyIntegrationTest`、`tests/joint/cross-client-consistency.mjs`（同 key 重放不重复建） | 部分（进程被杀/断网恢复未注入） |
 | E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（真机页面变体有限） |
 | E-02 | 低置信 | 低置信转文字/人工 | `GuidanceSessionManagerTest`、`apps/web/tests/e2e` 低置信日期门 | 部分 |
 | E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest` | 部分（旋转/分屏/键盘未真机验证） |

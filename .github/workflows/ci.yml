@@ -171,6 +171,8 @@ jobs:
         run: node tests/contract/openapi-contract.mjs
       - name: Run AsyncAPI contract check
         run: node tests/contract/asyncapi-contract.mjs
+      - name: Run cross-client consistency scenarios
+        run: node tests/joint/cross-client-consistency.mjs
       - name: Upload API log on failure
         if: failure()
         uses: actions/upload-artifact@v4
