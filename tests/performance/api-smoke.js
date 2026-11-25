@@ -11,7 +11,9 @@
  *   PERF_DURATION  持续时长，默认 20s
  *
  * 阈值只作用于 scenario=core_reads 的请求，setup() 里的注册/建事项/来源导入
- * 属预热写入，不计入 16.1 的“核心读接口”口径。
+ * 属预热写入，不计入 16.1 的“核心读接口”口径；另加按端点的 http_req_failed==0，
+ * 避免「整轮迭代三个接口全 5xx」仍落在全局 1% 预算内而变绿。
+ * 本地运行必须关闭注册限流（ACTIONLOOP_RL_REGISTER_MAX=0），否则 setup 会 429 直接失败（CI 已设 0）。
  * 注意：k6 的 fail() 只有在 setup/teardown 阶段才会让整轮失败并返回非 0 退出码；
  * VU（default）阶段必须靠 thresholds 兜底，不要在 default() 里依赖 fail() 变红。
  */
@@ -36,6 +38,9 @@ export const options = {
   },
   thresholds: {
     'http_req_failed{scenario:core_reads}': ['rate<0.01'],
+    'http_req_failed{endpoint:me}': ['rate==0'],
+    'http_req_failed{endpoint:tasks}': ['rate==0'],
+    'http_req_failed{endpoint:candidates}': ['rate==0'],
     'http_req_duration{scenario:core_reads}': ['p(95)<500', 'p(99)<1000'],
     'checks{scenario:core_reads}': ['rate>0.99']
   }
