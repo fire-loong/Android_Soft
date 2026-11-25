@@ -169,6 +169,8 @@ jobs:
           exit 1
       - name: Run OpenAPI contract check
         run: node tests/contract/openapi-contract.mjs
+      - name: Run AsyncAPI contract check
+        run: node tests/contract/asyncapi-contract.mjs
       - name: Upload API log on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,212 @@
+{
+  "asyncapi": "3.0.0",
+  "id": "urn:actionloop:realtime",
+  "info": {
+    "title": "ActionLoop 实时事件契约",
+    "version": "0.1.0-beta.1",
+    "description": "WebSocket 不是事实源（指导书 11.4）：/ws/events 推送空间增量事件，客户端按 seq 去重与补洞；/ws/assist/{sessionId} 推送远程协助事件，帧不落盘。本文件由 tests/contract/asyncapi-contract.mjs 做结构与引用校验，修改需与后端 WorkspaceEventMessage / AssistEventView 保持一致。",
+    "contact": {
+      "name": "ActionLoop"
+    }
+  },
+  "defaultContentType": "application/json",
+  "servers": {
+    "development": {
+      "host": "127.0.0.1:8080",
+      "protocol": "ws",
+      "description": "本地开发；握手需 access_token 与 workspaceId/sessionId 查询参数，见各 channel 说明"
+    }
+  },
+  "channels": {
+    "workspaceEvents": {
+      "address": "/ws/events",
+      "title": "空间增量事件",
+      "description": "握手参数：access_token=<JWT>&workspaceId=<UUID>。认证失败直接拒绝握手；成员被撤权后连接会被服务端以 POLICY_VIOLATION 关闭。客户端可发送字符串 ping，服务端回 pong。",
+      "messages": {
+        "workspaceEvent": {
+          "$ref": "#/components/messages/WorkspaceEvent"
+        },
+        "ping": {
+          "$ref": "#/components/messages/Ping"
+        },
+        "pong": {
+          "$ref": "#/components/messages/Pong"
+        }
+      }
+    },
+    "assistSession": {
+      "address": "/ws/assist/{sessionId}",
+      "title": "远程协助事件",
+      "description": "握手参数：access_token=<JWT>。仅会话参与者可连接；事件为最小化描述（payloadJson 为 JSON 字符串），不含屏幕帧内容。",
+      "parameters": {
+        "sessionId": {
+          "description": "协助会话 ID（UUID）",
+          "location": "$message.payload#/sessionId"
+        }
+      },
+      "messages": {
+        "assistEvent": {
+          "$ref": "#/components/messages/AssistEvent"
+        }
+      }
+    }
+  },
+  "operations": {
+    "receiveWorkspaceEvent": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/workspaceEvents"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/workspaceEvents/messages/workspaceEvent"
+        }
+      ]
+    },
+    "sendPing": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/workspaceEvents"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/workspaceEvents/messages/ping"
+        }
+      ]
+    },
+    "receivePong": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/workspaceEvents"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/workspaceEvents/messages/pong"
+        }
+      ]
+    },
+    "receiveAssistEvent": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/assistSession"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/assistSession/messages/assistEvent"
+        }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "WorkspaceEvent": {
+        "name": "workspace.event",
+        "title": "空间事件",
+        "summary": "对应后端 WorkspaceEventMessage；payload 为 JSON 字符串，按 eventType 再解析",
+        "payload": {
+          "$ref": "#/components/schemas/WorkspaceEventPayload"
+        }
+      },
+      "AssistEvent": {
+        "name": "assist.event",
+        "title": "协助事件",
+        "summary": "对应后端 AssistEventView，外层信封为 {\"type\":\"assist.event\",\"data\":...}",
+        "payload": {
+          "$ref": "#/components/schemas/AssistEventEnvelope"
+        }
+      },
+      "Ping": {
+        "name": "ping",
+        "payload": {
+          "type": "string",
+          "const": "ping"
+        }
+      },
+      "Pong": {
+        "name": "pong",
+        "payload": {
+          "type": "string",
+          "const": "pong"
+        }
+      }
+    },
+    "schemas": {
+      "WorkspaceEventPayload": {
+        "type": "object",
+        "required": ["workspaceId", "seq", "aggregateId", "aggregateType", "eventType", "createdAt"],
+        "properties": {
+          "outboxId": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "单调递增；客户端按 seq 去重与补洞"
+          },
+          "aggregateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aggregateType": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string",
+            "description": "如 TASK_CREATED、CANDIDATE_CONFIRMED、INVITE_CREATED"
+          },
+          "payload": {
+            "type": ["string", "null"],
+            "description": "JSON 字符串；不包含原文、令牌或屏幕帧"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AssistEventEnvelope": {
+        "type": "object",
+        "required": ["type", "data"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "assist.event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AssistEventView"
+          }
+        }
+      },
+      "AssistEventView": {
+        "type": "object",
+        "required": ["sessionId", "seq", "eventType", "createdAt"],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "payloadJson": {
+            "type": ["string", "null"],
+            "description": "最小化载荷；禁止包含屏幕帧与原文"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

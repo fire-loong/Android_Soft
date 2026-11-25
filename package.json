@@ -16,6 +16,7 @@
     "typecheck": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" typecheck",
     "test": "pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" test",
     "test:contract": "node tests/contract/openapi-contract.mjs",
+    "test:contract:asyncapi": "node tests/contract/asyncapi-contract.mjs",
     "gen:api-client": "pnpm --filter @actionloop/api-client-ts generate",
     "test:perf": "k6 run tests/performance/api-smoke.js",
     "test:e2e": "pnpm --filter @actionloop/web test:e2e"
