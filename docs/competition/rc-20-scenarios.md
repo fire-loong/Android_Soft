@@ -33,7 +33,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | ID | 场景 | 步骤 | 预期 | 自动化证据 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | R01 | 通知→事项→提醒→完成→原文回溯 | Web 注册 → 分享/导入一条通知文本 → 确认候选 → 建事项与步骤 → 完成并上传凭证 → 回到原文 | 全链路成功，提醒与原文证据可追溯，AI 未直接改状态 | `MainJourneyE2EIntegrationTest`、`tests/e2e/main-journey.spec.ts` | 自动化通过 |
-| R02 | OpenAPI 契约不破坏 | `pnpm test:contract` | 0 破坏性变更；Web 客户端无漂移；基线不可达时退出 2 | `tests/contract/openapi-contract.mjs`（67 路径基线） | 自动化通过 |
+| R02 | OpenAPI 契约不破坏 | `pnpm test:contract` | 0 破坏性变更；Web 客户端无漂移；基线不可达时退出 2 | `tests/contract/openapi-contract.mjs`（68 路径基线） | 自动化通过 |
 | R03 | AsyncAPI 实时契约 | `pnpm test:contract:asyncapi` | 2 channel / 4 message 结构完整，`$ref` 可解析 | `tests/contract/asyncapi-contract.mjs` | 自动化通过 |
 | R04 | 跨端一致性（越权/并发/幂等） | `pnpm test:joint` | 6 场景全通过：他人事项 403/404 不泄露标题、旧 baseVersion 409、同 Idempotency-Key 不重复建 | `tests/joint/cross-client-consistency.mjs` | 自动化通过（API 层，非真机联测） |
 | R05 | 依赖漏洞与 SBOM | `pnpm test:security:deps` + `pnpm release:sbom` | 0 未评估 CRITICAL/HIGH；放行项带理由与到期日；SBOM ≥50 组件且字段完整 | `tests/security/dependency-audit.mjs`、`scripts/release-sbom.mjs` | 自动化通过 |
@@ -73,7 +73,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 26.2 契约版本化 | R02、R03 |
 | 26.2 离线重放与并发 | R04 |
 | 26.2 AI 人工确认与降级 | R09、R20 |
-| 26.2 监控/审计/备份/导出 | R06、R15 |
+| 26.2 监控/审计/备份/导出 | R06、R15（数据导出与注销另见 `ExportIntegrationTest`（3 项）、`AccountDeletionIntegrationTest` 与本机 API+worker 实测记录） |
 | 26.2 进程被杀/离线恢复 | R06（杀进程）、R04（幂等重放） |
 | 26.2 真机与干净安装 | R16、R17（未完成，阻断） |
 | 26.3 禁自动操作 | R18 |
