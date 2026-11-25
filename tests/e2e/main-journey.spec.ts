@@ -287,3 +287,36 @@ test('账户注销需密码确认进入冷却期，取消后恢复可用', async
   }>
   expect(cancelled.data.accountDeletion.state).toBe('NONE')
 })
+
+test('空间导出需密码二次认证，创建为可追踪的异步任务', async ({ page, request }) => {
+  const id = runId()
+  const user = await registerAndGetPersonalWorkspace(page, request, id)
+
+  await page.goto('/workspaces')
+  await page.getByRole('tab', { name: '数据与导出' }).click()
+  await page.getByRole('button', { name: '创建空间导出' }).click()
+
+  const modal = page.locator('.ant-modal-content').filter({ hasText: '创建空间导出' })
+  await expect(modal).toBeVisible()
+  await modal.getByLabel('当前密码', { exact: true }).fill('WrongPass1!')
+  const okButton = modal.getByRole('button', { name: '确认导出' })
+  await okButton.click()
+  await expect(page.locator('.ant-message')).toContainText('密码错误')
+  // 密码错误会触发一次 401→refresh→重试，等按钮退出 loading 再提交，避免点击被 antd 忽略。
+  await expect(okButton).not.toHaveClass(/ant-btn-loading/)
+
+  await modal.getByLabel('当前密码', { exact: true }).fill('Passw0rd!')
+  await okButton.click()
+  await expect(page.locator('.ant-message')).toContainText('导出任务已创建')
+  await expect(modal).toBeHidden()
+
+  const table = page.locator('.ant-card').filter({ hasText: '数据与导出' })
+  await expect(table.locator('.ant-table-row').first()).toBeVisible()
+
+  const exportsResponse = await request.get(`${API_BASE}/exports`, { headers: authHeaders(user.token) })
+  expect(exportsResponse.status()).toBe(200)
+  const exports = (await exportsResponse.json()) as ApiEnvelope<Array<{ id: string; state: string }>>
+  expect(exports.data.length).toBeGreaterThan(0)
+  // E2E 只启动 API，worker 可能未运行；任务至少应处于 PENDING，若 worker 在线则可先变 READY。
+  expect(['PENDING', 'READY']).toContain(exports.data[0].state)
+})

@@ -592,8 +592,9 @@ export const auditApi = {
 
 export const exportApi = {
   mine: () => unwrap<ExportJob[]>(api.get<ApiResponse<ExportJob[]>>('/exports')),
-  create: (workspaceId: string, exportType = 'WORKSPACE') =>
-    unwrap<ExportJob>(api.post<ApiResponse<ExportJob>>('/exports', { workspaceId, exportType })),
+  // 高敏导出需密码重新认证（指导书 13.2 / 15.3）；服务端异步生成，返回 PENDING。
+  create: (workspaceId: string, password: string, exportType = 'WORKSPACE_JSON') =>
+    unwrap<ExportJob>(api.post<ApiResponse<ExportJob>>('/exports', { workspaceId, exportType, password })),
   async download(exportId: string): Promise<Blob> {
     const resp = await api.get(`/exports/${exportId}/download`, { responseType: 'blob' })
     return resp.data as Blob

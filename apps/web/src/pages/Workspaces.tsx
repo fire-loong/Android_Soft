@@ -7,6 +7,7 @@ import {
   Form,
   Input,
   List,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -50,6 +51,8 @@ export default function Workspaces() {
   const [rejectTarget, setRejectTarget] = useState<PendingCompletion | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [exportId, setExportId] = useState<string | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportForm] = Form.useForm<{ password: string }>()
 
   const selectedId = currentWorkspace?.id
 
@@ -142,14 +145,18 @@ export default function Workspaces() {
   })
 
   const exportMut = useMutation({
-    mutationFn: () => exportApi.create(selectedId!),
+    mutationFn: (password: string) => exportApi.create(selectedId!, password),
     onSuccess: (job) => {
       setExportId(job.id)
+      setExportOpen(false)
+      exportForm.resetFields()
       message.success('导出任务已创建，完成后可下载')
       void queryClient.invalidateQueries({ queryKey: ['exports'] })
     },
     onError: (err) => message.error(getErrorMessage(err, '创建导出失败'))
   })
+
+  const submitExport = () => exportForm.submit()
 
   const downloadExport = async (id: string) => {
     try {
@@ -157,7 +164,7 @@ export default function Workspaces() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `actionloop-export-${id}.zip`
+      a.download = `actionloop-export-${id}.json`
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
@@ -352,10 +359,11 @@ export default function Workspaces() {
     <Card title="数据与导出">
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         <Typography.Paragraph type="secondary">
-          导出会包含你空间内可见的事项、步骤、材料与来源引用；导出的压缩包有效期 7 天，过期自动删除。
+          导出会包含你空间内可见的事项、步骤、材料、来源预览与审计索引，生成为 JSON 快照；
+          文件默认 24 小时后过期并自动删除。高敏导出需要再次输入当前密码。
         </Typography.Paragraph>
         <Space>
-          <Button type="primary" loading={exportMut.isPending} onClick={() => exportMut.mutate()} disabled={!selectedId}>
+          <Button type="primary" onClick={() => setExportOpen(true)} disabled={!selectedId}>
             创建空间导出
           </Button>
           <Button onClick={() => void exportsQuery.refetch()}>刷新</Button>
@@ -397,7 +405,8 @@ export default function Workspaces() {
   )
 
   return (
-    <Row gutter={16}>
+    <>
+      <Row gutter={16}>
       <Col xs={24} lg={7}>
         <Card
           title="我的空间"
@@ -466,6 +475,30 @@ export default function Workspaces() {
         />
       </Col>
     </Row>
+      <Modal
+        title="创建空间导出"
+        open={exportOpen}
+        onCancel={() => {
+          setExportOpen(false)
+          exportForm.resetFields()
+        }}
+        onOk={() => void submitExport()}
+        okText="确认导出"
+        cancelText="取消"
+        confirmLoading={exportMut.isPending}
+        destroyOnClose
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          导出包含当前空间内你可见的事项、步骤、材料、来源预览与审计索引，异步生成后可在任务列表下载。
+          高敏导出需要再次输入当前密码。
+        </Typography.Paragraph>
+        <Form form={exportForm} layout="vertical" onFinish={(values) => exportMut.mutate(values.password)}>
+          <Form.Item name="password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
+            <Input.Password placeholder="当前密码" autoComplete="current-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   )
 }
 
