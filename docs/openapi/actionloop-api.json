@@ -1312,6 +1312,7 @@
         "tags": [
           "export-controller"
         ],
+        "summary": "创建空间导出（需密码重新认证，异步生成）",
         "operationId": "create_6",
         "requestBody": {
           "content": {
@@ -1324,8 +1325,28 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "202": {
+            "description": "已入队，state=PENDING",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseExportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "密码错误或账户不可用",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseExportView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "非空间管理员",
             "content": {
               "*/*": {
                 "schema": {
@@ -5217,6 +5238,7 @@
       },
       "CreateExportRequest": {
         "required": [
+          "password",
           "workspaceId"
         ],
         "type": "object",
@@ -5226,6 +5248,11 @@
             "format": "uuid"
           },
           "exportType": {
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 0,
             "type": "string"
           }
         }
