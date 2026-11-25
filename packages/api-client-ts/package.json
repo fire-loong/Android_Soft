@@ -1,0 +1,23 @@
+{
+  "name": "@actionloop/api-client-ts",
+  "private": true,
+  "version": "0.1.0-beta.1",
+  "type": "module",
+  "description": "由 OpenAPI 基线生成的三端共享 TypeScript 客户端（生成物不手改）",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check:generated": "node scripts/generate.mjs --check",
+    "typecheck": "pnpm run generate && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm run generate && tsc -p tsconfig.json",
+    "test": "pnpm run build && node --test tests/client.test.mjs",
+    "lint": "pnpm run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

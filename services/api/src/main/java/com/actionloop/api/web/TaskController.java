@@ -11,6 +11,7 @@ import com.actionloop.api.web.dto.UpdateTaskRequest;
 import com.actionloop.shared.web.ApiResponse;
 import jakarta.validation.Valid;
 import org.slf4j.MDC;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -56,7 +57,7 @@ public class TaskController {
     public ApiResponse<PageView<TaskView>> list(@AuthenticationPrincipal UserPrincipal me,
                                                 @RequestParam UUID workspaceId,
                                                 @RequestParam(required = false) TaskStatus status,
-                                                @PageableDefault(size = 20) Pageable pageable) {
+                                                @ParameterObject @PageableDefault(size = 20) Pageable pageable) {
         Page<TaskView> page = taskService.list(workspaceId, status, me.userId(), pageable);
         return ApiResponse.of(PageView.of(page), reqId());
     }

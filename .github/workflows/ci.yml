@@ -266,6 +266,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  api-client:
+    name: API client (generated TS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Generate types from OpenAPI baseline & typecheck
+        run: pnpm --filter @actionloop/api-client-ts typecheck
+      - name: Test client runtime
+        run: pnpm --filter @actionloop/api-client-ts test
+
   web:
     name: Web (Vite)
     runs-on: ubuntu-latest
