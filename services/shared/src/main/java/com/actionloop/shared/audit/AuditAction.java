@@ -65,6 +65,8 @@ public final class AuditAction {
 
     public static final String EXPORT_CREATE = "export.create";
     public static final String ACCOUNT_DELETE = "account.delete";
+    public static final String ACCOUNT_DELETE_CANCEL = "account.delete.cancel";
+    public static final String ACCOUNT_DELETE_PURGE = "account.delete.purge";
 
     public static final String RESULT_SUCCESS = "SUCCESS";
     public static final String RESULT_FAILURE = "FAILURE";

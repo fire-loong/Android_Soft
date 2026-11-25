@@ -14,4 +14,6 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, UUID> {
     List<ExportJob> findByRequestedByOrderByCreatedAtDesc(UUID requestedBy);
 
     List<ExportJob> findByStateAndCreatedAtBefore(String state, java.time.Instant before);
+
+    List<ExportJob> findByWorkspaceId(UUID workspaceId);
 }

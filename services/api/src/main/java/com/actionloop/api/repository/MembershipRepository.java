@@ -29,4 +29,8 @@ public interface MembershipRepository extends JpaRepository<Membership, UUID> {
     boolean existsByWorkspaceIdAndUserId(UUID workspaceId, UUID userId);
 
     long countByWorkspaceIdAndRoleAndStatus(UUID workspaceId, Role role, MembershipStatus status);
+
+    long countByWorkspaceIdAndStatusAndUserIdNot(UUID workspaceId, MembershipStatus status, UUID userId);
+
+    List<Membership> findByUserIdAndRoleAndStatus(UUID userId, Role role, MembershipStatus status);
 }

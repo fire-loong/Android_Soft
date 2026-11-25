@@ -1,16 +1,21 @@
 package com.actionloop.api.web;
 
+import com.actionloop.api.account.AccountDeletionService;
 import com.actionloop.api.security.UserPrincipal;
 import com.actionloop.api.service.AuthService;
+import com.actionloop.api.web.dto.AccountDeletionView;
 import com.actionloop.api.web.dto.LoginRequest;
 import com.actionloop.api.web.dto.MeResponse;
 import com.actionloop.api.web.dto.RefreshRequest;
 import com.actionloop.api.web.dto.RegisterRequest;
+import com.actionloop.api.web.dto.RequestAccountDeletionRequest;
 import com.actionloop.api.web.dto.SessionResponse;
 import com.actionloop.shared.web.ApiResponse;
 import jakarta.validation.Valid;
 import org.slf4j.MDC;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,7 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 账户与设备会话端点（指导书 13.x）：注册/登录/刷新轮换/注销 + 当前用户。
+ * 账户与设备会话端点（指导书 13.x）：注册/登录/刷新轮换/注销 + 当前用户 + 账户注销冷却。
  * 除 /auth/* 外均需 access token；错误一律走统一 ApiError 格式。
  */
 @RestController
@@ -26,9 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final AccountDeletionService accountDeletionService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, AccountDeletionService accountDeletionService) {
         this.authService = authService;
+        this.accountDeletionService = accountDeletionService;
     }
 
     private String reqId() {
@@ -60,5 +67,22 @@ public class AuthController {
     @GetMapping("/me")
     public ApiResponse<MeResponse> me(@AuthenticationPrincipal UserPrincipal me) {
         return ApiResponse.of(authService.me(me), reqId());
+    }
+
+    /**
+     * 请求账户注销（指导书 13.2 DELETE /me）：需重新输入密码，进入冷却期后到期清除。
+     * 返回 202 + 计划清除时间；冷却期内可通过 /me/deletion/cancel 取消。
+     */
+    @DeleteMapping("/me")
+    public ResponseEntity<ApiResponse<AccountDeletionView>> requestDeletion(
+            @AuthenticationPrincipal UserPrincipal me,
+            @Valid @RequestBody RequestAccountDeletionRequest request) {
+        return ResponseEntity.accepted()
+                .body(ApiResponse.of(accountDeletionService.request(me, request), reqId()));
+    }
+
+    @PostMapping("/me/deletion/cancel")
+    public ApiResponse<AccountDeletionView> cancelDeletion(@AuthenticationPrincipal UserPrincipal me) {
+        return ApiResponse.of(accountDeletionService.cancel(me), reqId());
     }
 }

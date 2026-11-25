@@ -1,5 +1,6 @@
 package com.actionloop.api.service;
 
+import com.actionloop.api.account.AccountDeletionService;
 import com.actionloop.api.domain.Device;
 import com.actionloop.api.domain.DevicePlatform;
 import com.actionloop.api.domain.DeviceStatus;
@@ -48,16 +49,19 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AccountDeletionService accountDeletionService;
 
     public AuthService(UserRepository userRepository, DeviceRepository deviceRepository,
                        WorkspaceService workspaceService, JwtService jwtService,
-                       PasswordEncoder passwordEncoder, AuditService auditService) {
+                       PasswordEncoder passwordEncoder, AuditService auditService,
+                       AccountDeletionService accountDeletionService) {
         this.userRepository = userRepository;
         this.deviceRepository = deviceRepository;
         this.workspaceService = workspaceService;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
+        this.accountDeletionService = accountDeletionService;
     }
 
     public SessionResponse register(RegisterRequest req) {
@@ -186,7 +190,8 @@ public class AuthService {
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.AUTH_INVALID, "账户不可用");
         }
-        return new MeResponse(UserResponse.of(user), workspaceService.listMyWorkspaces(user.getId()));
+        return new MeResponse(UserResponse.of(user), workspaceService.listMyWorkspaces(user.getId()),
+                accountDeletionService.view(user));
     }
 
     private Device createDevice(User user, DevicePlatform platform, String name) {

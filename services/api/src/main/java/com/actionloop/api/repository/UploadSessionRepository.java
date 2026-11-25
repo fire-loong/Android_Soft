@@ -14,4 +14,6 @@ public interface UploadSessionRepository extends JpaRepository<UploadSession, UU
     Optional<UploadSession> findByIdAndCreatedBy(UUID id, UUID createdBy);
 
     List<UploadSession> findByStateAndExpiresAtBefore(UploadSessionState state, Instant now);
+
+    List<UploadSession> findByWorkspaceId(UUID workspaceId);
 }
