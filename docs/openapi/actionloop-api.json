@@ -16,7 +16,7 @@
         "tags": [
           "reminder-controller"
         ],
-        "operationId": "list_4",
+        "operationId": "list",
         "parameters": [
           {
             "name": "workspaceId",
@@ -176,7 +176,7 @@
         "tags": [
           "workspace-controller"
         ],
-        "operationId": "list",
+        "operationId": "list_1",
         "responses": {
           "200": {
             "description": "OK",
@@ -356,7 +356,7 @@
         "tags": [
           "task-controller"
         ],
-        "operationId": "list_1",
+        "operationId": "list_2",
         "parameters": [
           {
             "name": "workspaceId",
@@ -468,7 +468,7 @@
         "tags": [
           "task-step-controller"
         ],
-        "operationId": "list_2",
+        "operationId": "list_3",
         "parameters": [
           {
             "name": "workspaceId",
@@ -556,7 +556,7 @@
         "tags": [
           "material-controller"
         ],
-        "operationId": "list_5",
+        "operationId": "list_4",
         "parameters": [
           {
             "name": "workspaceId",
@@ -644,7 +644,7 @@
         "tags": [
           "comment-controller"
         ],
-        "operationId": "list_6",
+        "operationId": "list_5",
         "parameters": [
           {
             "name": "taskId",
@@ -812,7 +812,7 @@
         "tags": [
           "completion-controller"
         ],
-        "operationId": "list_7",
+        "operationId": "list_6",
         "parameters": [
           {
             "name": "stepId",
@@ -952,7 +952,7 @@
         "tags": [
           "process-controller"
         ],
-        "operationId": "list_9",
+        "operationId": "list_7",
         "parameters": [
           {
             "name": "workspaceId",
@@ -1563,6 +1563,18 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -2112,7 +2124,7 @@
         "tags": [
           "task-controller"
         ],
-        "operationId": "detail_1",
+        "operationId": "detail",
         "parameters": [
           {
             "name": "workspaceId",
@@ -2150,7 +2162,7 @@
         "tags": [
           "task-controller"
         ],
-        "operationId": "delete_3",
+        "operationId": "delete_2",
         "parameters": [
           {
             "name": "workspaceId",
@@ -2309,7 +2321,7 @@
         "tags": [
           "workspace-controller"
         ],
-        "operationId": "detail",
+        "operationId": "detail_1",
         "parameters": [
           {
             "name": "id",
@@ -2340,7 +2352,7 @@
         "tags": [
           "task-source-controller"
         ],
-        "operationId": "list_3",
+        "operationId": "list_8",
         "parameters": [
           {
             "name": "taskId",
@@ -2492,7 +2504,7 @@
         "tags": [
           "source-controller"
         ],
-        "operationId": "list_8",
+        "operationId": "list_9",
         "parameters": [
           {
             "name": "workspaceId",
@@ -2581,7 +2593,7 @@
         "tags": [
           "source-controller"
         ],
-        "operationId": "delete_4",
+        "operationId": "delete_3",
         "parameters": [
           {
             "name": "sourceId",
@@ -3329,7 +3341,7 @@
         "tags": [
           "comment-controller"
         ],
-        "operationId": "delete_2",
+        "operationId": "delete_4",
         "parameters": [
           {
             "name": "taskId",
@@ -3680,7 +3692,9 @@
         "type": "object",
         "properties": {
           "email": {
-            "type": "string"
+            "minLength": 1,
+            "type": "string",
+            "format": "email"
           },
           "role": {
             "type": "string",
@@ -3940,6 +3954,7 @@
         "type": "object",
         "properties": {
           "title": {
+            "minLength": 1,
             "type": "string"
           },
           "instruction": {
@@ -4044,6 +4059,7 @@
         "type": "object",
         "properties": {
           "name": {
+            "minLength": 1,
             "type": "string"
           },
           "requiredConditionJson": {
@@ -4224,6 +4240,7 @@
         "type": "object",
         "properties": {
           "operations": {
+            "minItems": 1,
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SyncOpInput"
@@ -4245,6 +4262,7 @@
             "format": "uuid"
           },
           "aggregateType": {
+            "minLength": 1,
             "type": "string"
           },
           "aggregateId": {
@@ -4252,6 +4270,7 @@
             "format": "uuid"
           },
           "operationType": {
+            "minLength": 1,
             "type": "string"
           },
           "baseVersion": {
@@ -5196,7 +5215,9 @@
         "type": "object",
         "properties": {
           "email": {
-            "type": "string"
+            "minLength": 1,
+            "type": "string",
+            "format": "email"
           },
           "username": {
             "maxLength": 32,
@@ -5307,6 +5328,7 @@
         "type": "object",
         "properties": {
           "refreshToken": {
+            "minLength": 1,
             "type": "string"
           }
         }
@@ -5321,9 +5343,11 @@
         "type": "object",
         "properties": {
           "login": {
+            "minLength": 1,
             "type": "string"
           },
           "password": {
+            "minLength": 1,
             "type": "string"
           },
           "deviceName": {
@@ -5564,13 +5588,17 @@
             "format": "uuid"
           },
           "sha256": {
+            "minLength": 1,
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "mime": {
+            "minLength": 1,
             "type": "string"
           },
           "sizeBytes": {
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "type": "integer",
             "format": "int64"
           },
@@ -5683,10 +5711,13 @@
         "type": "object",
         "properties": {
           "sha256": {
+            "minLength": 1,
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "sizeBytes": {
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "type": "integer",
             "format": "int64"
           }
@@ -6247,19 +6278,13 @@
       "PageSourceView": {
         "type": "object",
         "properties": {
-          "totalElements": {
-            "type": "integer",
-            "format": "int64"
-          },
           "totalPages": {
             "type": "integer",
             "format": "int32"
           },
-          "first": {
-            "type": "boolean"
-          },
-          "last": {
-            "type": "boolean"
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
           },
           "size": {
             "type": "integer",
@@ -6276,17 +6301,20 @@
             "format": "int32"
           },
           "sort": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SortObject"
-            }
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
           },
           "numberOfElements": {
             "type": "integer",
             "format": "int32"
           },
-          "pageable": {
-            "$ref": "#/components/schemas/PageableObject"
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
           },
           "empty": {
             "type": "boolean"
@@ -6300,12 +6328,6 @@
             "type": "integer",
             "format": "int64"
           },
-          "sort": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SortObject"
-            }
-          },
           "paged": {
             "type": "boolean"
           },
@@ -6317,6 +6339,9 @@
             "type": "integer",
             "format": "int32"
           },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
           "unpaged": {
             "type": "boolean"
           }
@@ -6325,19 +6350,13 @@
       "SortObject": {
         "type": "object",
         "properties": {
-          "direction": {
-            "type": "string"
-          },
-          "nullHandling": {
-            "type": "string"
-          },
-          "ascending": {
+          "empty": {
             "type": "boolean"
           },
-          "property": {
-            "type": "string"
+          "sorted": {
+            "type": "boolean"
           },
-          "ignoreCase": {
+          "unsorted": {
             "type": "boolean"
           }
         }

@@ -71,8 +71,9 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
-    # 暂不切 OpenAPI 3.1：springdoc 2.6.0 在 3.1 模式下会丢掉扁平化 Pageable 参数的
-    # type（page/size/sort 只剩 default/minimum），契约质量反而下降；升级 springdoc 后再切换。
+    # 固定 3.0.1：springdoc 2.10 默认输出 3.1，会改变契约基线与生成客户端的结构；
+    # 3.0.1 下扁平化 Pageable 参数（page/size）仍保留 type，契约检查才有意义。
+    version: openapi_3_0
     # 默认关闭：接口契约只在显式开启的开发/测试环境暴露（指导书 15.x 减少攻击面）
     enabled: ${ACTIONLOOP_API_DOCS_ENABLED:false}
   swagger-ui:
