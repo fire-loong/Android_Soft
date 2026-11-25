@@ -81,9 +81,14 @@ function runDependencyList(modules) {
       { cwd: join(ROOT, 'services'), encoding: 'utf8', shell: isWin, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
     )
   } catch (e) {
-    const stderrTail = String(e.stderr ?? '')
-      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-12).join(' | ')
-    throw new ScanError(`mvnw dependency:list 失败（modules=${modules.join(',')}）：${String(e.message ?? e).split('\n')[0]}${stderrTail ? '；stderr: ' + stderrTail : ''}`)
+    const tailOf = (text) => String(text ?? '')
+      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      .filter((l) => /\[ERROR\]|error|Error|BUILD FAILURE/.test(l))
+      .slice(-6).join(' | ')
+    const errTail = tailOf(e.stderr) || tailOf(e.stdout) ||
+      String(e.stdout ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-6).join(' | ')
+    const env = `JAVA_HOME=${process.env.JAVA_HOME ?? '(unset)'}`
+    throw new ScanError(`mvnw dependency:list 失败（modules=${modules.join(',')}）：${String(e.message ?? e).split('\n')[0]}${errTail ? '；输出: ' + errTail : ''}；${env}`)
   }
 }
 
