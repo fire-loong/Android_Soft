@@ -3,30 +3,43 @@ package com.actionloop.api.service;
 import com.actionloop.api.domain.ExportJob;
 import com.actionloop.api.domain.Role;
 import com.actionloop.api.repository.ExportJobRepository;
-import com.actionloop.api.web.dto.CreateExportRequest;
-import com.actionloop.api.web.dto.ExportView;
 import com.actionloop.api.service.storage.FileStorageProvider;
+import com.actionloop.api.web.RequestIdFilter;
+import com.actionloop.api.web.dto.ExportView;
 import com.actionloop.shared.audit.AuditAction;
 import com.actionloop.shared.error.BusinessException;
 import com.actionloop.shared.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * 空间数据导出（指导书 11.7 / WP13）：私有对象 + 短期有效，仅请求者与管理员可下载。
- * 导出不包含密码哈希、令牌、原始屏幕帧；来源仅导出预览文本。
+ * 空间数据导出（指导书 11.7 / 13.2 / WP13）。
+ *
+ * <p>规则：</p>
+ * <ul>
+ *   <li>请求阶段只做权限与入队，实际快照由 worker 异步生成（指导书 13.2「异步」）。</li>
+ *   <li>导出对象私有，下载仍需登录并按请求者/空间管理员校验；有效期为短期（默认 24 小时）。</li>
+ *   <li>密码重新认证在 {@code com.actionloop.api.export.ExportRequestService}（仅 API 进程），
+ *       本类保持 worker 可扫描，不依赖 Web 安全层的 PasswordEncoder。</li>
+ * </ul>
  */
 @Service
 public class ExportService {
+
+    /** worker 消费的任务类型；payload 仅含 exportId 与 workspaceId。 */
+    public static final String JOB_TYPE = "EXPORT_BUILD";
 
     private static final Logger log = LoggerFactory.getLogger(ExportService.class);
 
@@ -35,45 +48,77 @@ public class ExportService {
     private final AuditService auditService;
     private final FileStorageProvider storage;
     private final ExportBundleBuilder bundleBuilder;
+    private final JobService jobService;
+    private final int expiryHours;
 
     public ExportService(ExportJobRepository exportJobRepository, PermissionService permissionService,
                          AuditService auditService, FileStorageProvider storage,
-                         ExportBundleBuilder bundleBuilder) {
+                         ExportBundleBuilder bundleBuilder, JobService jobService,
+                         @Value("${app.export.expiry-hours:24}") int expiryHours) {
         this.exportJobRepository = exportJobRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.storage = storage;
         this.bundleBuilder = bundleBuilder;
+        this.jobService = jobService;
+        this.expiryHours = Math.max(1, expiryHours);
     }
 
-    public ExportView create(UUID userId, CreateExportRequest req) {
-        permissionService.requireAtLeastRole(req.workspaceId(), userId, Role.ADMIN);
+    /** 创建 PENDING 导出并入队；返回立即可见的任务视图（指导书 13.2 异步接口）。 */
+    @Transactional
+    public ExportView enqueue(UUID userId, UUID workspaceId, String exportType) {
+        permissionService.requireAtLeastRole(workspaceId, userId, Role.ADMIN);
         ExportJob job = new ExportJob();
-        job.setWorkspaceId(req.workspaceId());
+        job.setWorkspaceId(workspaceId);
         job.setRequestedBy(userId);
-        job.setExportType(req.exportType() == null ? "WORKSPACE_JSON" : req.exportType());
+        job.setExportType(exportType == null || exportType.isBlank() ? "WORKSPACE_JSON" : exportType);
         job.setState("PENDING");
         exportJobRepository.saveAndFlush(job);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("exportId", job.getId().toString());
+        payload.put("workspaceId", workspaceId.toString());
+        String requestId = MDC.get(RequestIdFilter.MDC_KEY);
+        if (requestId != null) {
+            payload.put("requestId", requestId);
+        }
+        jobService.enqueue(workspaceId, userId, JOB_TYPE, "export:" + job.getId(), null, payload);
+
+        auditService.record(userId, workspaceId, AuditAction.EXPORT_CREATE, "export",
+                job.getId().toString(), AuditAction.RESULT_SUCCESS,
+                Map.of("state", job.getState(), "expiryHours", expiryHours));
+        return ExportView.of(job);
+    }
+
+    /**
+     * worker 执行快照生成。失败时把任务标为 FAILED 并写审计，但不抛出异常：
+     * 用户可从任务列表看到失败原因并重新发起，避免盲目重试反复覆盖状态。
+     */
+    @Transactional
+    public void process(UUID exportId) {
+        ExportJob job = exportJobRepository.findById(exportId).orElse(null);
+        if (job == null || !"PENDING".equals(job.getState())) {
+            return;
+        }
         try {
-            byte[] payload = bundleBuilder.build(req.workspaceId());
-            String key = "exports/" + req.workspaceId() + "/" + job.getId() + ".json";
+            byte[] payload = bundleBuilder.build(job.getWorkspaceId());
+            String key = "exports/" + job.getWorkspaceId() + "/" + job.getId() + ".json";
             storage.putObject(key, new ByteArrayInputStream(payload), payload.length);
             job.setStorageKey(key);
             job.setSizeBytes((long) payload.length);
             job.setState("READY");
-            job.setExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));
+            job.setExpiresAt(Instant.now().plus(expiryHours, ChronoUnit.HOURS));
         } catch (Exception e) {
-            log.warn("export build failed workspace={} export={}: {}", req.workspaceId(), job.getId(), e.toString());
+            log.warn("export build failed workspace={} export={}: {}", job.getWorkspaceId(), job.getId(), e.toString());
             job.setState("FAILED");
             job.setErrorCode("EXPORT_FAILED");
         }
         job.setUpdatedAt(Instant.now());
         exportJobRepository.save(job);
-        auditService.record(userId, req.workspaceId(), AuditAction.EXPORT_CREATE, "export",
+        auditService.record(job.getRequestedBy(), job.getWorkspaceId(), AuditAction.EXPORT_CREATE, "export",
                 job.getId().toString(),
                 "READY".equals(job.getState()) ? AuditAction.RESULT_SUCCESS : AuditAction.RESULT_FAILURE,
                 Map.of("state", job.getState(), "size", job.getSizeBytes() == null ? 0 : job.getSizeBytes()));
-        return ExportView.of(job);
     }
 
     public List<ExportView> listMine(UUID userId) {
@@ -119,4 +164,3 @@ public class ExportService {
         return job;
     }
 }
-

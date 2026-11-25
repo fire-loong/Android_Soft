@@ -54,6 +54,9 @@ app:
       enabled: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_ENABLED:true}
       interval-ms: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_INTERVAL_MS:600000}
       lock-ttl-seconds: ${ACTIONLOOP_ACCOUNT_DELETION_PURGE_LOCK_TTL:300}
+  export:
+    # 导出对象短期有效（指导书 13.2）：worker 生成时写入 expiresAt
+    expiry-hours: ${ACTIONLOOP_EXPORT_EXPIRY_HOURS:24}
   ai:
     provider: ${ACTIONLOOP_AI_PROVIDER:deterministic}
     base-url: ${ACTIONLOOP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

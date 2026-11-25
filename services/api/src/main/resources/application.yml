@@ -156,6 +156,9 @@ app:
   account:
     # 账户注销冷却天数（指导书 15.5）：到期由 worker 清除数据并写墓碑
     deletion-cooldown-days: ${ACTIONLOOP_ACCOUNT_DELETION_COOLDOWN_DAYS:7}
+  export:
+    # 导出对象短期有效（指导书 13.2「短期下载」）：到期后下载即失效并删除对象
+    expiry-hours: ${ACTIONLOOP_EXPORT_EXPIRY_HOURS:24}
   cors:
     # 逗号分隔；为空时仅放行本地开发端（指导书 15.x 白名单，禁止全放行）
     allowed-origins: ${ACTIONLOOP_CORS_ALLOWED_ORIGINS:}
