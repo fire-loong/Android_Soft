@@ -41,16 +41,16 @@
 | E-08 | 媒体不留存 | `AssistMediaPolicy`（帧不落盘） | `AssistMediaPolicyTest` | 部分（会话后存储/相册检查未执行） |
 | X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest` | 部分（真实 MaaS 故障未注入） |
 | X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
-| X-03 | 数据库恢复 | 备份恢复一致性 | 无 | 未验证 |
+| X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2781 行 / 34 张非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
 | X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测 | 部分（无 TalkBack 实测） |
 | X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证 |
 
 ## 汇总（共 35 条）
 
 - 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06。
-- 部分：20 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证。
-- 未验证：6 条 —— A-05、A-06、E-07、X-02、X-03、X-05。
-- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障、X-03 备份恢复（按 17.5 属 RC 前置条件）。
+- 部分：21 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练。
+- 未验证：5 条 —— A-05、A-06、E-07、X-02、X-05。
+- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练。
 
 ## 待用户/环境提供
 
