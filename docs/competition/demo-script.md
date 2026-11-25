@@ -10,6 +10,7 @@
 2. 启动 API：`java -jar services/api/target/actionloop-api.jar`；启动 Web：`pnpm --filter @actionloop/web dev`（5173）。
 3. 使用全新注册账号演示，避免真实个人信息；演示数据全部为自造脱敏文本。
 4. 录屏分辨率 1080p，浏览器缩放 100%，关闭通知弹窗与个人书签栏。
+5. 若要录第 12 镜头的导出「PENDING→READY」完成态，必须另起 worker：`java -jar services/worker/target/actionloop-worker.jar`（Web E2E 不启动 worker，只验证密码门与 202）。
 
 ## 1. 分镜表
 
@@ -27,6 +28,7 @@
 | 9 | 50s | 跨 App 引导与停止 | 真机在受控测试 App 内启动引导 → 高亮目标控件 → 用户自己点击 → 点「停止」后高亮与采集立即终止 | **待补录**（需真机 + 受控测试 App） |
 | 10 | 40s | 远程协助 | 求助者分享屏幕 → 协助者标注 → 到期自动结束 → 停止后无法恢复 | **待补录**（需两台真机 + Coturn） |
 | 11 | 45s | 工程证据 | 展示 CI run 全绿、k6 指标、契约检查、备份恢复演练输出 | 可录（截图代替实时） |
+| 12 | 30s | 数据导出与账户注销（可选） | 「设置/数据」页点导出 → 要求再输密码 → 任务先显示 PENDING 再变 READY → 下载 JSON 并提示 24 小时后删除；另一镜头展示注销申请与取消 | 已可录（API+worker 全栈；E2E 只覆盖密码门与申请取消，任务完成态需本地起 worker） |
 
 ## 2. 逐场旁白（可录部分）
 
@@ -49,7 +51,10 @@
 「办事流程的每个事实性步骤都带来源版本；来源变化会触发复核。协作空间里责任唯一、状态透明，完成标准由程序判断或授权成员核验，AI 不直接改状态。」
 
 **11 工程证据**
-「这些能力都有对应的自动化证据：OpenAPI/AsyncAPI 契约检查、三端一致性脚本、k6 冒烟、上传恶意文件拒绝、备份恢复演练，以及 GitHub Actions 的八个 job 全绿。」
+「这些能力都有对应的自动化证据：OpenAPI/AsyncAPI 契约检查、三端一致性脚本、k6 冒烟、上传恶意文件拒绝、备份恢复演练，以及 GitHub Actions 的十个 job 全绿。」
+
+**12 数据导出与账户注销（可选）**
+「导出不是点一下就同步吐文件：它要求再输一次当前密码，作为高敏操作的二次确认；确认后进入后台任务，完成后生成短期链接，默认 24 小时过期并由后台任务删除。想离开这个产品，注销同样有冷却期，期间可取消，到期后由后台真正清除账号数据。」
 
 ## 3. 禁止事项（录制与答辩通用）
 
@@ -72,7 +77,9 @@
 | 契约 | `tests/contract/openapi-contract.mjs`、`asyncapi-contract.mjs` |
 | 性能 | `tests/performance/api-smoke.js`（k6） |
 | 备份恢复 | `tests/ops/backup-restore-drill.mjs`（`pnpm test:ops:backup`） |
-| 全量 CI | GitHub Actions run #10（`3f90529`）8/8 success：https://github.com/fire-loong/Android_Soft/actions/runs/45609020568 |
+| 数据导出（密码二次认证/异步/24h 过期） | `ExportIntegrationTest`（3 项）、`tests/e2e/main-journey.spec.ts` 第 4 条；本机 API+worker 演练：202→READY 531ms、下载含新建事项、他人 404、过期 410 |
+| 账户注销（申请/取消/到期清除） | `AccountDeletionIntegrationTest`（4 项）、`AccountPurgeIntegrationTest`（3 项）、`tests/e2e/main-journey.spec.ts` 第 3 条；本机演练：2s 内清除、旧令牌全 401、同邮箱可重新注册 |
+| 全量 CI | GitHub Actions run #17（`86883ee`）10/10 success（含 Resilience、Supply chain）。注销与导出相关提交（`43198bd`…`dc7ee9c`）推送后的 run 结果**尚未回读**（本机网络受限），答辩引用前须先确认该 run 为绿 |
 | 验收映射与未验证项 | `docs/competition/acceptance-matrix.md` |
 
 ## 5. 待补录所需条件

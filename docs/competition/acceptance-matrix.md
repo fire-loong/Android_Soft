@@ -41,7 +41,7 @@
 | E-08 | 媒体不留存 | `AssistMediaPolicy`（帧不落盘） | `AssistMediaPolicyTest` | 部分（会话后存储/相册检查未执行） |
 | X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest` | 部分（真实 MaaS 故障未注入） |
 | X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
-| X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2781 行 / 34 张非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
+| X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2946 行 / 非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
 | X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测 | 部分（无 TalkBack 实测） |
 | X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证 |
 
@@ -51,6 +51,15 @@
 - 部分：21 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练。
 - 未验证：5 条 —— A-05、A-06、E-07、X-02、X-05。
 - 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练。
+
+## 附录：不在 17.3 编号内、但属 26.2 验收的两项
+
+> 这两项在指导书中位于 11.7 / 13.2 / 15.3 / 15.5 / 26.2，不占用上表 35 条编号，故单列。统计仍以上表 35 条为准。
+
+| 能力 | 实现位置 | 自动化证据 | 本机运行证据 | 状态与边界 |
+| --- | --- | --- | --- | --- |
+| 空间数据导出（异步 + 密码二次认证 + 24h 短期下载） | `ExportRequestService`（密码校验失败写 DENIED 审计并 401）、`ExportService`（`PENDING` 入队 `EXPORT_BUILD`、悲观行锁、`expiresAt=+24h`、过期返回 410）、`ExportJobHandler`、`ExportCleanupJob`（每小时清理过期对象） | `ExportIntegrationTest` 3 项（二次认证+异步+下载、成员/陌生人隔离、过期清理）；`tests/e2e/main-journey.spec.ts` 第 4 条（Web 密码门 401→202 PENDING） | API + 独立 worker + PG17：无密码 400、错密码 401 且不建任务；正确密码 202 → 531ms READY（`jobs.type=EXPORT_BUILD state=SUCCEEDED attempts=1`）；下载 2285 字节 JSON 含刚建事项；其他用户 404；审计含 DENIED/SUCCESS | 已验证（自动化 + 本机演练）；边界：E2E 不启动 worker（READY 由集成测试与演练覆盖），未做多实例并发导出压测 |
+| 账户注销（冷却期申请/取消/到期清除） | `AccountDeletionService`（`DELETE /me` 202、`/me/deletion/cancel`、共享空间所有者 409）、`AccountPurgeService` + worker `AccountDeletionPurgeJob` | `AccountDeletionIntegrationTest` 4 项、`AccountPurgeIntegrationTest` 3 项；`tests/e2e/main-journey.spec.ts` 第 3 条（申请→取消） | API + 独立 worker + PG17（`COOLDOWN_DAYS=0`、扫描 2s）：2s 内清除，worker 日志 `account purged ... workspaces=1 devices=1`；旧 access/refresh/密码全部 401；同邮箱可重新注册（匿名化生效） | 已验证（自动化 + 本机演练）；边界：多 worker 并发清除与异地备份中的残留副本未验证 |
 
 ## 待用户/环境提供
 

@@ -22,7 +22,7 @@ pnpm test:ops:backup          # 备份恢复演练（pg_dump -Fc → 空库 pg_r
 pnpm test:ops:fault           # 故障注入：杀 API 进程 → 重启 → 校验数据保留与 Idempotency-Key 重放
 pnpm test:perf                # k6 冒烟（需 API 以 RL_*_MAX=0 启动）
 pnpm test:e2e                 # Playwright 全栈（需 PG + JWT_SECRET + 8080 API）
-cd services && ./mvnw -pl api -am test   # 后端 147 项集成/单测（MaaS 凭证缺失时 1 项跳过）
+cd services && ./mvnw -pl api -am test   # 后端 156 项集成/单测（MaaS 凭证缺失时 1 项跳过）
 cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（必须 ASCII 路径）
 ```
 
@@ -89,3 +89,5 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | RC-2026-11-25 | 2026-11-25 | `47c4116` | R01–R07 自动化全部通过（后端 147 项/1 跳过、Web 32 项、E2E 2 项、joint 6/6、契约 PASS、审计 0 未评估、SBOM 159 组件、备份 36 表一致、杀进程 3/3、k6 170 迭代 0 失败） | R11、R14、R18 自动化通过；R08–R10、R12、R13、R15、R19、R20 部分；R16、R17 需真机 | 阻断：R16、R17（缺 ≥2 台不同厂商真机）；非阻断：R06 异地备份、R20 真实 MaaS 故障注入 | 开发（本机） |
 
 > 填写要求：日期用实际执行日；提交写被测 commit；结果只写「通过 / 部分（缺什么）/ FAIL / BLOCKED（缺什么）」；不得把未跑写成通过。
+>
+> 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。
