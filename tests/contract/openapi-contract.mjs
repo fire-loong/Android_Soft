@@ -84,6 +84,10 @@ function diffSchema(baseSpec, currentSpec, baseNode, currentNode, where, issues,
   if (baseType && currentType && baseType !== currentType) {
     issues.push(`${where}: 类型由 ${baseType} 变为 ${currentType}`)
   }
+  // 类型声明被整体删掉（例如生成器/规范版本切换后丢 type）会让客户端失去字段类型信息
+  if (baseType && !currentType) {
+    issues.push(`${where}: 类型声明被移除（原 ${baseType}）`)
+  }
 
   // 请求方向：新增必填字段会让旧客户端请求被拒绝。响应方向新增必填不影响旧客户端。
   if (requestMode) {
