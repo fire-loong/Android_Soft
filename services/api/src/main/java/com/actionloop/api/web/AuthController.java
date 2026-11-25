@@ -11,6 +11,7 @@ import com.actionloop.api.web.dto.RegisterRequest;
 import com.actionloop.api.web.dto.RequestAccountDeletionRequest;
 import com.actionloop.api.web.dto.SessionResponse;
 import com.actionloop.shared.web.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.slf4j.MDC;
 import org.springframework.http.ResponseEntity;
@@ -73,6 +74,10 @@ public class AuthController {
      * 请求账户注销（指导书 13.2 DELETE /me）：需重新输入密码，进入冷却期后到期清除。
      * 返回 202 + 计划清除时间；冷却期内可通过 /me/deletion/cancel 取消。
      */
+    @Operation(summary = "请求账户注销（需密码重新认证，进入冷却期）")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses(
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "202", description = "已进入注销冷却期，返回计划清除时间"))
     @DeleteMapping("/me")
     public ResponseEntity<ApiResponse<AccountDeletionView>> requestDeletion(
             @AuthenticationPrincipal UserPrincipal me,
@@ -81,6 +86,7 @@ public class AuthController {
                 .body(ApiResponse.of(accountDeletionService.request(me, request), reqId()));
     }
 
+    @Operation(summary = "取消待执行的账户注销")
     @PostMapping("/me/deletion/cancel")
     public ApiResponse<AccountDeletionView> cancelDeletion(@AuthenticationPrincipal UserPrincipal me) {
         return ApiResponse.of(accountDeletionService.cancel(me), reqId());

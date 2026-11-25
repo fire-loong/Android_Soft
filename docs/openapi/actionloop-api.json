@@ -1146,6 +1146,27 @@
         }
       }
     },
+    "/api/v1/me/deletion/cancel": {
+      "post": {
+        "tags": [
+          "auth-controller"
+        ],
+        "summary": "取消待执行的账户注销",
+        "operationId": "cancelDeletion",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseAccountDeletionView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/jobs/{id}/retry": {
       "post": {
         "tags": [
@@ -2835,6 +2856,35 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiResponseMeResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "auth-controller"
+        ],
+        "summary": "请求账户注销（需密码重新认证，进入冷却期）",
+        "operationId": "requestDeletion",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestAccountDeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "已进入注销冷却期，返回计划清除时间",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseAccountDeletionView"
                 }
               }
             }
@@ -4812,6 +4862,37 @@
           }
         }
       },
+      "AccountDeletionView": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "scheduledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cooldownDays": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ApiResponseAccountDeletionView": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AccountDeletionView"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        }
+      },
       "ApiResponseJobView": {
         "type": "object",
         "properties": {
@@ -6543,6 +6624,9 @@
             "items": {
               "$ref": "#/components/schemas/WorkspaceView"
             }
+          },
+          "accountDeletion": {
+            "$ref": "#/components/schemas/AccountDeletionView"
           }
         }
       },
@@ -6825,6 +6909,23 @@
             "type": "string"
           },
           "requestId": {
+            "type": "string"
+          }
+        }
+      },
+      "RequestAccountDeletionRequest": {
+        "required": [
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "password": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 0,
             "type": "string"
           }
         }
