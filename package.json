@@ -21,6 +21,7 @@
     "test:ops:backup": "node tests/ops/backup-restore-drill.mjs",
     "test:security:deps": "node tests/security/dependency-audit.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
+    "release:sbom": "node scripts/release-sbom.mjs",
     "gen:api-client": "pnpm --filter @actionloop/api-client-ts generate",
     "test:perf": "k6 run tests/performance/api-smoke.js",
     "test:e2e": "pnpm --filter @actionloop/web test:e2e"

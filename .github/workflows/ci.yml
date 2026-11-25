@@ -411,9 +411,9 @@ jobs:
         working-directory: apps/desktop/src-tauri
 
   dependency-audit:
-    name: Dependency audit (OSV + npm)
+    name: Supply chain (audit + SBOM)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -450,6 +450,17 @@ jobs:
         with:
           name: actionloop-dependency-audit
           path: build/security/
+          if-no-files-found: warn
+          retention-days: 14
+      # CycloneDX SBOM（插件自带 schema 校验 + 脚本结构自检）
+      - name: Generate SBOM
+        run: pnpm release:sbom
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-sbom
+          path: build/sbom/
           if-no-files-found: warn
           retention-days: 14
 

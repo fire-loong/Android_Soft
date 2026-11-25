@@ -146,6 +146,12 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- 供应链：mvnw cyclonedx:makeAggregateBom 生成 CycloneDX SBOM（scripts/release-sbom.mjs 调用） -->
+                <plugin>
+                    <groupId>org.cyclonedx</groupId>
+                    <artifactId>cyclonedx-maven-plugin</artifactId>
+                    <version>2.9.3</version>
+                </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
