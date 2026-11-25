@@ -436,12 +436,20 @@ jobs:
       # 真实扫描（OSV.dev + registry.npmjs.org）；扫描没跑成退出 2，不会伪装成通过
       - name: Run dependency audit
         run: pnpm test:security:deps
+      # 把失败原因暴露成注解（匿名可读），否则只能靠 artifact 诊断
+      - name: Surface audit failure
+        if: failure()
+        run: |
+          if [ -f build/security/dependency-audit-error.txt ]; then
+            msg=$(head -c 900 build/security/dependency-audit-error.txt | tr '\n' ' ')
+            echo "::error title=Dependency audit failed::${msg}"
+          fi
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: actionloop-dependency-audit
-          path: build/security/dependency-audit.json
+          path: build/security/
           if-no-files-found: warn
           retention-days: 14
 

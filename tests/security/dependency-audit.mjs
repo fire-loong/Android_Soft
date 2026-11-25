@@ -81,7 +81,9 @@ function runDependencyList(modules) {
       { cwd: join(ROOT, 'services'), encoding: 'utf8', shell: isWin, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
     )
   } catch (e) {
-    throw new ScanError(`mvnw dependency:list 失败：${String(e.message ?? e).split('\n')[0]}`)
+    const stderrTail = String(e.stderr ?? '')
+      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-12).join(' | ')
+    throw new ScanError(`mvnw dependency:list 失败（modules=${modules.join(',')}）：${String(e.message ?? e).split('\n')[0]}${stderrTail ? '；stderr: ' + stderrTail : ''}`)
   }
 }
 
@@ -305,6 +307,13 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(`\n依赖漏洞扫描未完成：${e instanceof ScanError ? e.message : String(e.stack ?? e)}`)
+  const detail = e instanceof ScanError ? e.message : String(e.stack ?? e)
+  try {
+    mkdirSync(OUT_DIR, { recursive: true })
+    writeFileSync(join(OUT_DIR, 'dependency-audit-error.txt'), `${new Date().toISOString()}\n${detail}\n`, 'utf8')
+  } catch {
+    // 诊断文件写失败不改变退出码
+  }
+  console.error(`\n依赖漏洞扫描未完成：${detail}`)
   process.exit(2)
 })
