@@ -82,6 +82,19 @@ class AssetContentInspectorTest {
         assertThat(AssetContentInspector.rejectDeclared("image/png")).isNull();
     }
 
+    @Test
+    void chineseTextIsNotMistakenForBinary() throws Exception {
+        String text = "截止十一月三十日提交课程设计材料到学习通平台";
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        // 采样长度可能截断多字节字符，嗅探仍应判为纯文本
+        assertThat(AssetContentInspector.inspect(stream(bytes)).detectedMime()).isEqualTo("text/plain");
+        byte[] padded = new byte[512];
+        java.util.Arrays.fill(padded, (byte) ' ');
+        System.arraycopy(bytes, 0, padded, 0, Math.min(bytes.length, padded.length));
+        assertThat(AssetContentInspector.inspect(stream(padded)).detectedMime()).isEqualTo("text/plain");
+        assertThat(AssetContentInspector.matchDeclared("text/plain", "text/plain")).isNull();
+    }
+
     private static ByteArrayInputStream stream(String text) {
         return stream(text.getBytes(StandardCharsets.UTF_8));
     }
@@ -90,12 +103,21 @@ class AssetContentInspectorTest {
         return new ByteArrayInputStream(bytes);
     }
 
+    /** 用 STORED + 显式大小写 zip，避免流式 data descriptor（服务端为保证不解压，拒绝此类压缩包）。 */
     private static byte[] zip(String... nameAndBody) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(out)) {
             for (int i = 0; i + 1 < nameAndBody.length; i += 2) {
-                zip.putNextEntry(new ZipEntry(nameAndBody[i]));
-                zip.write(nameAndBody[i + 1].getBytes(StandardCharsets.UTF_8));
+                byte[] body = nameAndBody[i + 1].getBytes(StandardCharsets.UTF_8);
+                ZipEntry entry = new ZipEntry(nameAndBody[i]);
+                entry.setMethod(ZipEntry.STORED);
+                entry.setSize(body.length);
+                entry.setCompressedSize(body.length);
+                java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+                crc.update(body);
+                entry.setCrc(crc.getValue());
+                zip.putNextEntry(entry);
+                zip.write(body);
                 zip.closeEntry();
             }
         }

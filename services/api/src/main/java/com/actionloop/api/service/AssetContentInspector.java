@@ -9,8 +9,6 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 /**
  * 上传内容类型嗅探（指导书 11.6「服务端对文件做类型 sniffing，不能信任扩展名」/ 15.4）。
@@ -47,6 +45,8 @@ public final class AssetContentInspector {
             "application/msword", "application/vnd.ms-htmlhelp");
 
     private static final int HEADER_LIMIT = 64 * 1024;
+    /** 文本判定只看开头 512 字节；末尾可能截断多字节字符，解码时按 0-3 字节回退重试。 */
+    private static final int TEXT_SAMPLE = 512;
     private static final int MAX_ZIP_ENTRIES = 2048;
 
     private AssetContentInspector() {
@@ -56,7 +56,7 @@ public final class AssetContentInspector {
     public static Inspection inspect(InputStream raw) throws IOException {
         try (InputStream in = new BufferedInputStream(raw, HEADER_LIMIT)) {
             in.mark(HEADER_LIMIT);
-            byte[] head = in.readNBytes(16);
+            byte[] head = in.readNBytes(TEXT_SAMPLE);
             in.reset();
 
             String detected = detectHead(head);
@@ -171,19 +171,48 @@ public final class AssetContentInspector {
         };
     }
 
-    /** 扫描 OOXML/zip 包内条目名：区分 docx/xlsx/pptx，并拒绝含宏工程 vbaProject.bin 的包。 */
+    /**
+     * 扫描 OOXML/zip 包内条目名：区分 docx/xlsx/pptx，并拒绝含宏工程 vbaProject.bin 的包。
+     * 只遍历本地文件头并按声明长度跳过压缩数据，绝不解压正文（避免压缩炸弹占用 CPU/内存）；
+     * 使用流式大小（data descriptor）的 zip 因无法安全跳过，直接拒绝并提示重新打包。
+     */
     public static Inspection inspectZipContainer(InputStream raw) throws IOException {
-        try (ZipInputStream zip = new ZipInputStream(new BufferedInputStream(raw))) {
+        try (InputStream in = new BufferedInputStream(raw, 8192)) {
             boolean hasWord = false;
             boolean hasExcel = false;
             boolean hasPpt = false;
             int entries = 0;
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
+            while (true) {
+                int sig;
+                try {
+                    sig = readIntLE(in);
+                } catch (java.io.EOFException e) {
+                    break;
+                }
+                if (sig != SIG_LOCAL_HEADER) {
+                    // 中央目录或结束记录，条目扫描结束
+                    break;
+                }
                 if (++entries > MAX_ZIP_ENTRIES) {
                     return new Inspection("application/zip", "压缩包条目过多，已拒绝");
                 }
-                String name = entry.getName().toLowerCase(Locale.ROOT);
+                skipFully(in, 2);                       // version needed
+                int flags = readU16(in);
+                int method = readU16(in);
+                skipFully(in, 2);                       // last mod time
+                skipFully(in, 2);                       // last mod date
+                skipFully(in, 4);                       // crc32
+                long compressedSize = readU32(in);
+                readU32(in);                            // uncompressed size（不需要）
+                int nameLen = readU16(in);
+                int extraLen = readU16(in);
+                byte[] nameBytes = in.readNBytes(nameLen);
+                if (nameBytes.length < nameLen) {
+                    throw new java.io.EOFException("zip 条目名不完整");
+                }
+                skipFully(in, extraLen);
+                String name = new String(nameBytes, java.nio.charset.StandardCharsets.UTF_8)
+                        .toLowerCase(Locale.ROOT);
                 if (name.endsWith("vbaproject.bin")) {
                     return new Inspection("application/zip", "压缩包内含宏工程（vbaProject.bin），已拒绝");
                 }
@@ -194,6 +223,14 @@ public final class AssetContentInspector {
                 } else if (name.equals("ppt/presentation.xml")) {
                     hasPpt = true;
                 }
+                boolean hasDataDescriptor = (flags & 0x08) != 0;
+                if (hasDataDescriptor || compressedSize == 0) {
+                    if (method != 0 || compressedSize == 0) {
+                        return new Inspection("application/zip",
+                                "压缩包未在条目头声明压缩大小，无法安全扫描，请用标准方式重新打包后上传");
+                    }
+                }
+                skipFully(in, compressedSize);
             }
             if (hasWord) {
                 return new Inspection(
@@ -208,6 +245,55 @@ public final class AssetContentInspector {
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation", null);
             }
             return new Inspection("application/zip", null);
+        }
+    }
+
+    private static final int SIG_LOCAL_HEADER = 0x04034b50;
+
+    private static int readIntLE(InputStream in) throws IOException {
+        int b0 = in.read();
+        if (b0 < 0) {
+            throw new java.io.EOFException();
+        }
+        int b1 = readByte(in);
+        int b2 = readByte(in);
+        int b3 = readByte(in);
+        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+    }
+
+    private static int readU16(InputStream in) throws IOException {
+        int b0 = readByte(in);
+        int b1 = readByte(in);
+        return b0 | (b1 << 8);
+    }
+
+    private static long readU32(InputStream in) throws IOException {
+        long v = 0;
+        for (int i = 0; i < 4; i++) {
+            v |= ((long) readByte(in)) << (8 * i);
+        }
+        return v;
+    }
+
+    private static int readByte(InputStream in) throws IOException {
+        int b = in.read();
+        if (b < 0) {
+            throw new java.io.EOFException();
+        }
+        return b;
+    }
+
+    private static void skipFully(InputStream in, long count) throws IOException {
+        long remaining = count;
+        while (remaining > 0) {
+            long skipped = in.skip(remaining);
+            if (skipped > 0) {
+                remaining -= skipped;
+            } else if (in.read() < 0) {
+                throw new java.io.EOFException();
+            } else {
+                remaining -= 1;
+            }
         }
     }
 
@@ -232,14 +318,18 @@ public final class AssetContentInspector {
                 return false;
             }
         }
-        try {
-            StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(head));
-            return true;
-        } catch (CharacterCodingException e) {
-            return false;
+        // 采样末尾可能截断一个多字节字符：依次去掉 0-3 个尾字节重试，避免中文 txt 被误判为二进制。
+        for (int trim = 0; trim <= 3 && trim < head.length; trim++) {
+            try {
+                StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(head, 0, head.length - trim));
+                return true;
+            } catch (CharacterCodingException ignored) {
+                // 继续尝试去掉更多尾字节
+            }
         }
+        return false;
     }
 }

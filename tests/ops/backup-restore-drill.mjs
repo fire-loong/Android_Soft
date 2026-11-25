@@ -71,7 +71,7 @@ const env = {
 function psql(bin, db, sql) {
   return execFileSync(
     tool(bin, 'psql'),
-    ['-h', host, '-p', port, '-U', user, '-d', db, '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-c', sql],
+    ['-h', host, '-p', port, '-U', user, '-d', db, '-w', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-c', sql],
     { env, encoding: 'utf8' },
   ).trim()
 }
@@ -90,10 +90,16 @@ function check(name, ok, detail = '') {
   if (!ok) failures.push(name)
 }
 
+// 防误删：源库名与演练库名相同（或指向系统库）时直接退出，绝不执行 DROP。
+if (sourceDb === RESTORE_DB || ['postgres', 'template0', 'template1'].includes(sourceDb)) {
+  console.error(`拒绝执行：源库名 ${sourceDb} 与演练库冲突或为系统库，请检查 ACTIONLOOP_DB_NAME`)
+  process.exit(2)
+}
+
 try {
   console.log(`[1/5] pg_dump ${sourceDb} → ${dumpFile}`)
   execFileSync(tool(bin, 'pg_dump'), [
-    '-h', host, '-p', port, '-U', user, '-Fc', '-f', dumpFile, sourceDb,
+    '-h', host, '-p', port, '-U', user, '-w', '-Fc', '-f', dumpFile, sourceDb,
   ], { env, stdio: 'inherit' })
   check('备份文件已生成', existsSync(dumpFile))
 
@@ -103,15 +109,20 @@ try {
 
   console.log('[3/5] pg_restore 全量恢复')
   execFileSync(tool(bin, 'pg_restore'), [
-    '-h', host, '-p', port, '-U', user, '-d', RESTORE_DB, '--no-owner', '--no-privileges', dumpFile,
+    '-h', host, '-p', port, '-U', user, '-d', RESTORE_DB, '-w', '--no-owner', '--no-privileges',
+    '--exit-on-error', dumpFile,
   ], { env, stdio: 'inherit' })
-  check('恢复命令无错误返回', true)
 
   console.log('[4/5] 逐表比对行数与内容')
-  const tables = psql(bin, sourceDb,
+  const listTables = (db) => psql(bin, db,
     "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
     .split('\n').map((t) => t.trim()).filter(Boolean)
+  const tables = listTables(sourceDb)
+  const restoredTables = listTables(RESTORE_DB)
   check('源库存在业务表', tables.length > 0, `${tables.length} 张表`)
+  check('恢复库表集合与源库一致',
+    restoredTables.length === tables.length && tables.every((t, i) => t === restoredTables[i]),
+    `源 ${tables.length} / 恢复 ${restoredTables.length}`)
 
   let comparedTables = 0
   let comparedRows = 0

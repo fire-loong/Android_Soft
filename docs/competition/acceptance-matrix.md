@@ -18,7 +18,7 @@
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
-| B-04 | 恶意文件 | `AssetContentInspector`（魔数嗅探、可执行/OLE 拒绝、OOXML 宏工程拒绝）、`AssetService`（流式大小上限、服务端从不解压） | `AssetContentInspectorTest`（6 项）、`UploadIntegrationTest`（假扩展名/可执行伪装/含 `vbaProject.bin` 的 docx 均 415） | 已验证（自动化） |
+| B-04 | 恶意文件 | `AssetContentInspector`（魔数嗅探、可执行/OLE 拒绝、OOXML 宏工程拒绝、只跳压缩数据不解压、条目数上限）、`AssetService`（流式大小上限、失败会话落 FAILED） | `AssetContentInspectorTest`（7 项）、`UploadIntegrationTest`（假扩展名/可执行伪装/含 `vbaProject.bin` 的 docx 均 415，且断言会话 FAILED、无证据落库） | 已验证（自动化）；zip 仅按条目名检测，不深度扫描内嵌可执行/嵌套压缩；流式大小（data descriptor）zip 直接拒绝 |
 | B-05 | 检索权限 | `HybridSearchService`（权限前置过滤） | `HybridSearchBehaviorIntegrationTest`、`PermissionIntegrationTest` | 已验证（自动化） |
 | B-06 | 删除一致性 | `SoftDeleteIntegrationTest`、签名 URL 过期 | `SoftDeleteIntegrationTest` | 部分（旧签名到期后访问未单独断言） |
 | C-01 | 官方流程 | `ProcessService` / 版本与步骤 | `ProcessAssistIntegrationTest` | 部分（条件材料真实两页来源未跑） |

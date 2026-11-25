@@ -2,7 +2,9 @@ package com.actionloop.api.it;
 
 import com.actionloop.api.test.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.net.URI;
 import java.util.Map;
@@ -24,6 +26,9 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
     private static final String FAKE_SHA =
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
     private static final byte[] CONTENT = utf8("hello world");
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void completeRejectsWhenDeclaredHashMismatches() {
@@ -98,6 +103,7 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
 
         assertEquals(415, comp.status, comp.raw);
         assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+        assertUploadFailedWithoutAsset(sessionId, sha);
     }
 
     /** 可执行文件伪装成文本 → 415，且不生成证据记录。 */
@@ -115,6 +121,7 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
 
         assertEquals(415, comp.status, comp.raw);
         assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+        assertUploadFailedWithoutAsset(sessionId, sha);
     }
 
     /** 含宏工程 vbaProject.bin 的 docx 容器 → 415，不执行、不落证据。 */
@@ -135,6 +142,17 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
 
         assertEquals(415, comp.status, comp.raw);
         assertEquals("UNSUPPORTED_MEDIA_TYPE", errCode(comp));
+        assertUploadFailedWithoutAsset(sessionId, sha);
+    }
+
+    /** 失败后会话必须落为 FAILED 且不留证据：验证异常未被事务回滚吞掉（审查 P1）。 */
+    private void assertUploadFailedWithoutAsset(String sessionId, String sha) {
+        String state = jdbcTemplate.queryForObject(
+                "SELECT state FROM upload_sessions WHERE id = ?::uuid", String.class, sessionId);
+        assertEquals("FAILED", state, "失败上传会话状态必须持久化为 FAILED");
+        Integer assets = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM evidence_assets WHERE sha256 = ?", Integer.class, sha);
+        assertEquals(0, assets, "被拒绝的上传不得生成证据记录");
     }
 
     private static String sha256(byte[] content) throws Exception {
@@ -142,12 +160,21 @@ class UploadIntegrationTest extends AbstractIntegrationTest {
         return java.util.HexFormat.of().formatHex(digest);
     }
 
+    /** 用 STORED + 显式大小写 zip，避免流式 data descriptor（服务端为保证不解压，拒绝此类压缩包）。 */
     private static byte[] zip(String... nameAndBody) throws Exception {
         var out = new java.io.ByteArrayOutputStream();
         try (var zip = new java.util.zip.ZipOutputStream(out)) {
             for (int i = 0; i + 1 < nameAndBody.length; i += 2) {
-                zip.putNextEntry(new java.util.zip.ZipEntry(nameAndBody[i]));
-                zip.write(nameAndBody[i + 1].getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                byte[] body = nameAndBody[i + 1].getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                var entry = new java.util.zip.ZipEntry(nameAndBody[i]);
+                entry.setMethod(java.util.zip.ZipEntry.STORED);
+                entry.setSize(body.length);
+                entry.setCompressedSize(body.length);
+                var crc = new java.util.zip.CRC32();
+                crc.update(body);
+                entry.setCrc(crc.getValue());
+                zip.putNextEntry(entry);
+                zip.write(body);
                 zip.closeEntry();
             }
         }

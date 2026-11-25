@@ -135,7 +135,11 @@ public class AssetService {
         }
     }
 
-    @Transactional
+    /**
+     * 失败时必须保留会话 FAILED 状态与原因（供用户重试/排查），因此对业务异常不回滚事务；
+     * 与 AuthService/CommentService 的失败留痕模式一致。
+     */
+    @Transactional(noRollbackFor = BusinessException.class)
     public AssetView complete(UUID sessionId, UUID userId, CompleteUploadRequest req) {
         UploadSession session = loadSession(sessionId, userId);
         if (!req.sha256().equalsIgnoreCase(session.getSha256())
