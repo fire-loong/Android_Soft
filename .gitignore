@@ -52,6 +52,7 @@ ai/models/*.safetensors
 
 # ---- IDE / OS ----
 .idea/
+.trae/
 *.iml
 .vscode/
 !.vscode/extensions.json
