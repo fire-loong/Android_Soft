@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "id": "GHSA-pc63-qcmh-9cmg",
+      "package": "org.springframework:spring-webmvc",
+      "reason": "仅影响 XsltView 的路径限制；服务端未使用 XsltView/XSLT（代码库无引用），不可达。6.2.x 全线无修复（fixed 仅 7.0.9），随 Boot 4 迁移消除。",
+      "expiresAt": "2027-06-30",
+      "decidedBy": "dependency-audit-2026-11-25"
+    },
+    {
+      "id": "GHSA-j9f9-w8pj-32f8",
+      "package": "org.springframework:spring-webmvc",
+      "reason": "SSE 渲染 fragment 时的流损坏；本项目 SSE/WebSocket 只发送 JSON 事件、不渲染 fragment/HTML，不可达。6.2.x 全线无修复（fixed 仅 7.0.9），随 Boot 4 迁移消除。",
+      "expiresAt": "2027-06-30",
+      "decidedBy": "dependency-audit-2026-11-25"
+    }
+  ]
+}

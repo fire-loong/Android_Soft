@@ -410,6 +410,41 @@ jobs:
         run: cargo check
         working-directory: apps/desktop/src-tauri
 
+  dependency-audit:
+    name: Dependency audit (OSV + npm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      # 版本由根 package.json 的 packageManager 决定；再指定 version 会触发 "Multiple versions of pnpm specified"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Make wrapper executable
+        working-directory: services
+        run: chmod +x mvnw
+      # 真实扫描（OSV.dev + registry.npmjs.org）；扫描没跑成退出 2，不会伪装成通过
+      - name: Run dependency audit
+        run: pnpm test:security:deps
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionloop-dependency-audit
+          path: build/security/dependency-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+
   android:
     name: Android (assembleDebug)
     runs-on: ubuntu-latest
