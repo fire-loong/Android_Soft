@@ -79,7 +79,7 @@
 | 备份恢复 | `tests/ops/backup-restore-drill.mjs`（`pnpm test:ops:backup`） |
 | 数据导出（密码二次认证/异步/24h 过期） | `ExportIntegrationTest`（3 项）、`tests/e2e/main-journey.spec.ts` 第 4 条；本机 API+worker 演练：202→READY 531ms、下载含新建事项、他人 404、过期 410 |
 | 账户注销（申请/取消/到期清除） | `AccountDeletionIntegrationTest`（4 项）、`AccountPurgeIntegrationTest`（3 项）、`tests/e2e/main-journey.spec.ts` 第 3 条；本机演练：2s 内清除、旧令牌全 401、同邮箱可重新注册 |
-| 全量 CI | GitHub Actions run #17（`86883ee`）10/10 success（含 Resilience、Supply chain）。注销与导出相关提交（`43198bd`…`dc7ee9c`）推送后的 run 结果**尚未回读**（本机网络受限），答辩引用前须先确认该 run 为绿 |
+| 全量 CI | GitHub Actions run #45643467983（`fd3b473`，与 `e29f9f3` 同树）10/10 success（含 Android、Resilience、Supply chain）；`2450d3e`、`a373f3e` 的 run 亦全绿 |
 | 验收映射与未验证项 | `docs/competition/acceptance-matrix.md` |
 
 ## 5. 待补录所需条件
