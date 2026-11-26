@@ -1,4 +1,4 @@
-# RC 固定 20 条端到端场景（指导书 0.6 / 27.5）
+﻿# RC 固定 20 条端到端场景（指导书 0.6 / 27.5）
 
 > 用途：每次 RC（发布候选）固定按本表跑 20 条端到端场景，对应指导书第 26 章验收清单与 27 章第 5、10 条要求。
 > 与 [acceptance-matrix.md](acceptance-matrix.md) 的关系：本表是**执行流程**（每次 RC 逐条跑、填记录），验收矩阵是**证据索引**（每条场景对应哪些自动化测试）。
@@ -44,16 +44,16 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 
 | ID | 场景 | 步骤与预期 | 自动化证据 | 状态 / 失败出口 |
 | --- | --- | --- | --- | --- |
-| R08 | 通知去重与实质变更 | 同一 sourceKey 连发 3 次（原文相同→追加附件→改截止日期）：预期 1 条来源、候选按实质变更更新，不重复建事项 | `InboxChainIntegrationTest`、`RuleExtractorTest` | 部分（三连注入未做）；出口：保留手工合并 |
-| R09 | 多日期与闲聊负样本 | 输入含两个日期/无截止日期的群消息：预期按规则拆分或标为无日期，闲聊不生成事项 | `RuleExtractorTest`、`CandidateExtractionServiceTest` | 部分（无真实 200 条评测集）；出口：用户手动设置日期 |
+| R08 | 通知去重与实质变更 | 同一 sourceKey 连发 3 次（原文相同→追加附件→改截止日期）：预期 1 条来源、候选按实质变更更新，不重复建事项 | `InboxChainIntegrationTest`、`RuleExtractorTest` | 部分（真机单次注入已验证：1 来源 1 候选；三连实质变更未做）；出口：保留手工合并 |
+| R09 | 多日期与闲聊负样本 | 输入含两个日期/无截止日期的群消息：预期按规则拆分或标为无日期，闲聊不生成事项 | `RuleExtractorTest`、`CandidateExtractionServiceTest` | 部分（真机已验证双日期→`uncertainties_json` 记“存在两个日期…无法确定关系”、`due_date` 留空、`needs_user_confirmation=true`；无真实 200 条评测集）；出口：用户手动设置日期 |
 | R10 | 截图/文件→OCR→检索→转事项 | 导入长截图与扫描 PDF → 检索定位原文片段 → 情境重现 → 转事项 | `OcrIntegrationTest`、`LongScreenshotOcrTest`、`HybridSearchBehaviorIntegrationTest` | 部分（无文本层 PDF 样本与真实 MaaS 未跑）；出口：手动补原文 |
 | R11 | 恶意文件拦截 | 上传假扩展名/可执行伪装/含宏 docx：预期 415、会话 FAILED、无证据落库 | `AssetContentInspectorTest`、`UploadIntegrationTest` | 自动化通过；边界：zip 仅按条目名检测不深扫 |
 | R12 | 检索权限与删除一致性 | 成员 A 检索不到 B 私有原文；软删后列表与签名 URL 均不可再取 | `HybridSearchBehaviorIntegrationTest`、`PermissionIntegrationTest`、`SoftDeleteIntegrationTest` | 部分（旧签名到期后访问未单独断言） |
 | R13 | 权威流程→材料/条件步骤→发布 | 建流程模板 → 绑来源片段 → 生成材料与条件步骤 → 非生成者复核发布 → 来源更新生成新版本且旧版本不可变 | `ProcessAssistIntegrationTest`、`SourceRecheckIntegrationTest` | 部分（真实两页来源与新旧版本并列未实测）；出口：标记「未核验」 |
 | R14 | 来源抓取安全 | 对含内网地址/跳转/超大响应的 URL 复查：预期逐跳校验拒绝、robots 与限频生效、1MB 截断 | `SourceFetchServiceTest` | 自动化通过 |
 | R15 | 多人空间全流程 | 邀请 → 分配/改派 → 评论 → 提交凭证 → 驳回 → 重新提交 → 核验 → 审计可查 | `TaskFlowIntegrationTest`、`ReviewEvidenceIntegrationTest`、`WorkspaceEventEndToEndIntegrationTest` | 部分（过期/转发邀请链接未覆盖） |
-| R16 | 受控跨 App 高亮 | 受控测试 App 上高亮唯一目标 → 用户亲自点击 → 页面变化后重新匹配 → 低置信转文字 → 一键停止 | `TargetMatcherTest`、`GuidanceSessionManagerTest`、`GuidanceSessionStateTest`、`GuidanceTestAppContractTest` | 部分（真机页面变体有限）；**阻断发布** |
-| R17 | 敏感页与撤权即停 | 密码框/FLAG_SECURE/支付页/锁屏/撤权：预期立即撤掉高亮与采集，无残留上传 | `SensitivePageDetectorTest`、`GuidanceSessionStateTest`、`AssistMediaPolicyTest` | 部分（真机敏感页与锁屏未验证）；**阻断发布** |
+| R16 | 受控跨 App 高亮 | 受控测试 App 上高亮唯一目标 → 用户亲自点击 → 页面变化后重新匹配 → 低置信转文字 → 一键停止 | `TargetMatcherTest`、`GuidanceSessionManagerTest`、`GuidanceSessionStateTest`、`GuidanceTestAppContractTest` | 部分（真机已验证会话启动、悬浮层只读提示、敏感页暂停、一键停止；**本地目标高亮在 App 内无 UI 入口**——`GuidanceSessionManager.setTarget` 全工程无调用方，受控测试 App 的高亮/重新匹配/低置信降级无法在真机执行）；**阻断发布** |
+| R17 | 敏感页与撤权即停 | 密码框/FLAG_SECURE/支付页/锁屏/撤权：预期立即撤掉高亮与采集，无残留上传 | `SensitivePageDetectorTest`、`GuidanceSessionStateTest`、`AssistMediaPolicyTest` | 部分（真机 2026-11-26 已验证：密码弹窗即时暂停并清标注、锁屏停止采集（审计 `SENSITIVE_PAGE(锁屏状态)` + `STOP reason=user_revoked`，即系统锁屏撤销了 MediaProjection）、撤销只读无障碍即时暂停（审计 `PAUSE reason=a11y_revoked`；屏幕共享授权仍有效，故采集继续）、悬浮层一键停止；支付页与独立 FLAG_SECURE 测试页未验证）；**阻断发布** |
 | R18 | 伪造控制事件拒绝 | 向协助会话注入 CLICK/SWIPE/INPUT/COMMIT_PAYMENT：预期协议拒绝并写审计，不产生任何系统操作 | `AssistMessageGuardTest`、`AssistSignalCoreTest`、`AssistScopesContractTest` | 自动化通过 |
 | R19 | 协助授权与媒体不留存 | 单次授权 15 分钟到期 → 双方停止 → 检查存储/相册无原始帧 | `AssistScopesTest`、`AssistPayloadGuardTest`、`AssistMediaPolicyTest` | 部分（会话后存储检查未执行） |
 | R20 | AI 故障降级 | 模拟超时/无效 JSON/配额耗尽/缓存命中：预期候选标注低置信、转手动编辑、不写事实、不改状态 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest`、`AiExtractionTransactionIntegrationTest` | 部分（真实 MaaS 故障未注入）；出口：手动录入 |
@@ -87,7 +87,32 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | RC 编号 | 日期 | 提交 | 自动化结果（R01–R07） | 人工/真机结果（R08–R20） | 未通过项与阻断级别 | 执行人 |
 | --- | --- | --- | --- | --- | --- | --- |
 | RC-2026-11-25 | 2026-11-25 | `47c4116` | R01–R07 自动化全部通过（后端 147 项/1 跳过、Web 32 项、E2E 2 项、joint 6/6、契约 PASS、审计 0 未评估、SBOM 159 组件、备份 36 表一致、杀进程 3/3、k6 170 迭代 0 失败） | R11、R14、R18 自动化通过；R08–R10、R12、R13、R15、R19、R20 部分；R16、R17 需真机 | 阻断：R16、R17（缺 ≥2 台不同厂商真机）；非阻断：R06 异地备份、R20 真实 MaaS 故障注入 | 开发（本机） |
+| RC-2026-11-26（真机增量） | 2026-11-26 | `fdda0d7` | 只复跑受影响门禁：Android JVM 96 项通过、REBUILD 后 `assembleDebug` 成功；后端/Web/E2E/契约/依赖审计/备份与杀进程演练**未复跑**，不构成完整 RC | vivo V2352A（Android 16，SDK 36）真机：通知→来源→AI 候选→确认建事项→提交完成凭证（待复核）；密码弹窗暂停、锁屏停止、旋转/分辨率变化暂停、撤销只读无障碍暂停、悬浮层一键停止 | 阻断：R16 本地目标高亮在 App 内无入口；R17 支付页与独立 FLAG_SECURE 页未验证 | 开发（本机 + 真机） |
 
 > 填写要求：日期用实际执行日；提交写被测 commit；结果只写「通过 / 部分（缺什么）/ FAIL / BLOCKED（缺什么）」；不得把未跑写成通过。
+
+### 3.1 真机执行明细（2026-11-26，vivo V2352A / Android 16 / 1260×2800@560dpi）
+
+环境：debug APK 指向本机 API（`adb reverse tcp:8080`），API 与 worker（jar）均以真实进程运行，PG 17 + Redis 本机；账号为测试账号「vivo-demo 的个人空间」。截图保存在 `build/device/`（二进制不入库）。
+
+| 步骤 | 操作 | 结果 |
+| --- | --- | --- |
+| 通知采集授权 | `cmd notification allow_listener` 授权后，本地白名单未勾选时只记包名（DataStore `seen_packages=com.android.shell`），勾选后才上传 | 通过（默认拒绝生效） |
+| 通知→来源 | 注入 1 条含双日期的通知（“本周六上午 9 点停水…截止时间 2026-11-28 12:00”） | 通过：`source_items` 1 条，`SourceUploadWorker` SUCCESS，job `SOURCE_AI_EXTRACTION` SUCCEEDED |
+| AI 候选（R09） | worker 抽取候选「停水检修储水准备」 | 通过：`derivation=AI`、`confidence=0.8`、`due_date` 为空、`uncertainties_json=["存在两个日期…无法确定其关系"]`、`needs_user_confirmation=true`（未自动写事实） |
+| 确认建事项（R01 片段） | 待确认页点击候选 → 「确认创建」 | 通过：候选 CONFIRMED → 生成事项（步骤 1 条、原文证据 1 条），「今天」页可见 |
+| 完成凭证 | 事项详情 → 凭证 → 填完成说明 → 「提交完成凭证」 | 通过：步骤变「待复核」，`completions` 1 条（未自动判定完成） |
+| 引导会话启动 | 授权悬浮层 + 只读无障碍 → 「启动一次引导」→ 系统屏幕共享授权（整个屏幕） | 通过：悬浮层显示「引导：仅文字…」+ 暂停/求助/停止，前台通知「屏幕共享中」 |
+| 敏感页（R17） | 受控测试 App → 「安全输入演示」 | 通过：悬浮层转「已暂停」并清标注，审计 `SENSITIVE_PAGE`（检测到密码/可编辑敏感字段） |
+| 旋转（R17） | `settings put system user_rotation 1` | 通过：审计 `DISPLAY_CHANGED`，会话暂停，旋转回竖屏不影响已停会话 |
+| 锁屏（R17） | `input keyevent 223/26` | 通过：审计 `SENSITIVE_PAGE(锁屏状态)` + `STOP reason=user_revoked`（锁屏使系统撤销 MediaProjection），`ScreenCaptureService` 退出。未观察到走 `lockscreen` 分支的审计 |
+| 撤无障碍（R17，本轮修复） | 会话进行中 `settings put secure enabled_accessibility_services ''` | **修复前 FAIL**：会话仍显示进行中且不再产生帧；**修复后 PASS**：立刻转「已暂停」，审计 `PAUSE reason=a11y_revoked`，点「恢复」提示先重新开启无障碍且不恢复。注意：屏幕共享授权仍然有效，采集与「屏幕共享中」通知继续（不属于违例） |
+| 一键停止（R16 片段） | 悬浮层「停止」 | 通过：悬浮层消失、状态栏共享标识消失、`ScreenCaptureService` 停止；审计先 `STOP reason=user_overlay_stop`，采集服务收到停止动作后再补一条 `STOP reason=notification_stop` |
+| 覆盖安装 | `adb install -r` 新 APK | 通过：登录态与安全审计等本地偏好保留 |
+
+本轮真机发现：
+1. **已修**：撤销只读无障碍不会停止引导（违反 8.10 撤权即停）→ `GuidanceAccessibilityService.onUnbind` 用独立 scope 暂停会话（避免随 `onDestroy` 的 `scope.cancel()` 丢事件）；悬浮层「恢复」在无障碍关闭时拒绝恢复并给出提示，「待再次同意」状态同样拦截。
+2. **未修（阻断 R16）**：本地目标高亮无 App 内入口——`GuidanceSessionManager.setTarget` 在 `apps/android` 内没有任何调用方，受控测试 App 上「高亮唯一目标→用户点击→重新匹配→低置信降级」只能在 JVM 单测覆盖，真机无法执行。
+3. 观察项：本地候选抽取在 App 内走后端 worker（`SOURCE_AI_EXTRACTION`）；API 单进程运行时通知只会停留在 PENDING 作业，验证链路必须同时运行 worker。
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。

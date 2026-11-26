@@ -16,6 +16,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -197,10 +198,21 @@ class GuidanceOverlay(private val context: Context) {
             setOnClickListener {
                 scope.launch {
                     val m = GuidanceRuntime.manager(context)
-                    when (m.snapshot().state) {
-                        GuidanceSessionState.PAUSED -> m.userResume()
-                        // 远程 RESUME 只把状态推到 CONSENT_PENDING，必须由用户在本机再次同意（8.3）。
-                        GuidanceSessionState.CONSENT_PENDING -> m.consentGranted()
+                    val state = m.snapshot().state
+                    when (state) {
+                        // 无障碍被撤销后本地不再有帧，恢复/再次同意前必须让用户重新授权，
+                        // 否则会“恢复成功但无引导”（PAUSED 与远程 RESUME 落到的 CONSENT_PENDING 都要拦）。
+                        GuidanceSessionState.PAUSED, GuidanceSessionState.CONSENT_PENDING ->
+                            if (GuidanceRuntime.isAccessibilityEnabled(context)) {
+                                // 远程 RESUME 只把状态推到 CONSENT_PENDING，必须由用户在本机再次同意（8.3）。
+                                if (state == GuidanceSessionState.PAUSED) m.userResume() else m.consentGranted()
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "只读无障碍已关闭，请先在系统设置中重新开启",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         else -> m.pause("user_overlay")
                     }
                     GuidanceRuntime.render(context)

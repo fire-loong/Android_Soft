@@ -1,6 +1,7 @@
 package com.actionloop.android.assist
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -157,6 +158,23 @@ class GuidanceAccessibilityService : AccessibilityService() {
     }.getOrDefault(0)
 
     override fun onInterrupt() { /* 服务被中断时无需特殊处理 */ }
+
+    /**
+     * 用户在系统设置里撤销只读无障碍时立即生效（指导书 8.10 撤权即停）：
+     * 撤销后本机不再产生任何帧，若继续显示“会话进行中”会让用户误以为仍有引导，
+     * 因此清除标注并暂停会话（随会话暂停，远程画面共享也一并暂停，恢复需重新同意）。
+     */
+    override fun onUnbind(intent: Intent?): Boolean {
+        instance = null
+        // 不能用服务自身的 scope：onUnbind 后系统会紧接着 onDestroy → scope.cancel()，
+        // 未开始执行的协程会被直接取消，暂停回调静默丢失（真机审查发现）。
+        val ctx = applicationContext
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            GuidanceRuntime.manager(ctx).pause("a11y_revoked")
+            GuidanceRuntime.render(ctx)
+        }
+        return super.onUnbind(intent)
+    }
 
     override fun onDestroy() {
         instance = null

@@ -10,10 +10,10 @@
 | ID | 场景 | 实现位置 | 自动化证据 | 状态 |
 | --- | --- | --- | --- | --- |
 | A-01 | 手动分享闭环 | `SourceService` / `InboxService` / `TaskService` | `MainJourneyE2EIntegrationTest`、`apps/web/tests/e2e/main-journey.spec.ts` | 已验证（自动化） |
-| A-02 | 通知去重 | `SourceService`（sourceKey + 实质变更） | `InboxChainIntegrationTest`、`tests/e2e` 同 key 用例 | 部分（同 key 更新序列未做三连注入） |
-| A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest` | 部分（无真实通知样本集评测） |
+| A-02 | 通知去重 | `SourceService`（sourceKey + 实质变更） | `InboxChainIntegrationTest`、`tests/e2e` 同 key 用例；真机：1 条通知 → 1 条来源 1 条候选（2026-11-26） | 部分（同 key 更新序列未做三连注入） |
+| A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest`；真机：含两日期的通知候选 `due_date` 留空、写入 `uncertainties_json`、`needs_user_confirmation=true`（2026-11-26） | 部分（无真实通知样本集评测） |
 | A-04 | 无任务文本 | `RuleExtractor`、`SensitiveContentDetector` | `RuleExtractorTest`（含闲聊回归） | 已验证（规则层） |
-| A-05 | 权限撤销 | Android 通知监听/发送权限流 | 无 | 未验证（需真机撤销权限） |
+| A-05 | 权限撤销 | Android 通知监听/发送权限流 | 真机：未勾选白名单时仅记包名、勾选后才上传；撤销只读无障碍后引导会话暂停（`PAUSE reason=a11y_revoked`，2026-11-26） | 部分（通知监听权限被系统撤销后的停止行为未验证） |
 | A-06 | 重启和时区 | Android 提醒调度 | 无 | 未验证（需多厂商真机 + 省电策略） |
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
@@ -31,11 +31,11 @@
 | D-03 | 完成核验 | 完成/复核状态机与历史保留 | `TaskFlowIntegrationTest`、`ReviewEvidenceIntegrationTest` | 已验证（自动化） |
 | D-04 | 并发冲突 | 版本号/乐观锁 | `TaskStateMachineTest`、`tests/joint/cross-client-consistency.mjs`（旧 baseVersion 返回 409） | 部分（双端同时改派/改期未压测） |
 | D-05 | 离线幂等 | `IdempotencyFilter` / `sync_operation` | `IdempotencyIntegrationTest`、`tests/joint/cross-client-consistency.mjs`（同 key 重放不重复建） | 部分（进程被杀/断网恢复未注入） |
-| E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（真机页面变体有限） |
+| E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（**本地目标高亮无 App 内入口**：`GuidanceSessionManager.setTarget` 无调用方，真机无法执行高亮/重匹配；2026-11-26 实测） |
 | E-02 | 低置信 | 低置信转文字/人工 | `GuidanceSessionManagerTest`、`apps/web/tests/e2e` 低置信日期门 | 部分 |
-| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest` | 部分（旋转/分屏/键盘未真机验证） |
-| E-04 | 敏感页面 | `SensitivePageDetector`（密码/FLAG_SECURE/支付/验证码） | `SensitivePageDetectorTest` | 部分（需真机敏感页验证） |
-| E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest` | 部分（锁屏与超时未真机验证） |
+| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26） | 部分（分屏与软键盘变化未真机验证） |
+| E-04 | 敏感页面 | `SensitivePageDetector`（密码/FLAG_SECURE/支付/验证码） | `SensitivePageDetectorTest`；真机：受控测试 App 密码弹窗即时暂停并写 `SENSITIVE_PAGE`、锁屏触发停止（2026-11-26） | 部分（支付页与独立 FLAG_SECURE 测试页未验证） |
+| E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest`；真机：悬浮条停止、锁屏停止、撤无障碍暂停均已验证（2026-11-26） | 部分（超时未验证） |
 | E-06 | 伪造控制 | 拒绝 CLICK/SWIPE/INPUT/COMMIT_PAYMENT | `AssistMessageGuardTest`、`AssistSignalCoreTest`、`AssistScopesContractTest` | 已验证（自动化） |
 | E-07 | 弱网 | WebRTC 自适应、标注过期 | 无 | 未验证（需弱网注入） |
 | E-08 | 媒体不留存 | `AssistMediaPolicy`（帧不落盘） | `AssistMediaPolicyTest` | 部分（会话后存储/相册检查未执行） |
@@ -48,9 +48,9 @@
 ## 汇总（共 35 条）
 
 - 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06。
-- 部分：21 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练。
-- 未验证：5 条 —— A-05、A-06、E-07、X-02、X-05。
-- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练。
+- 部分：22 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练；A-02/A-03/A-05/E-01/E-03/E-04/E-05 已补 2026-11-26 vivo 真机证据。
+- 未验证：4 条 —— A-06、E-07、X-02、X-05。
+- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练；E-01 本地目标高亮需先补 App 内入口（`setTarget` 未接线）。
 
 ## 附录：不在 17.3 编号内、但属 26.2 验收的两项
 
@@ -63,7 +63,7 @@
 
 ## 待用户/环境提供
 
-- 真机与厂商覆盖（A-05/A-06/E-03/E-04/E-05/X-04）：需要至少 2 台不同厂商 Android 设备。
+- 真机与厂商覆盖（A-06/E-03 分屏/E-04 支付页/X-04）：已有 1 台 vivo V2352A（Android 16）实测记录，仍需 ≥2 台不同厂商设备。
 - 真实 MaaS 凭证与配额（X-01、B-02）：用于 AI/OCR 真实链路验证。
 - Coturn 服务器与双端网络（E-07、X-02）。
 - 备份介质与恢复窗口（X-03）。
