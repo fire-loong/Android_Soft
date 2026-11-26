@@ -14,7 +14,7 @@
 | A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest`；真机：含两日期的通知候选 `due_date` 留空、写入 `uncertainties_json`、`needs_user_confirmation=true`（2026-11-26） | 部分（无真实通知样本集评测） |
 | A-04 | 无任务文本 | `RuleExtractor`、`SensitiveContentDetector` | `RuleExtractorTest`（含闲聊回归） | 已验证（规则层） |
 | A-05 | 权限撤销 | Android 通知监听/发送权限流 | 真机：未勾选白名单时仅记包名、勾选后才上传；撤销只读无障碍后引导会话暂停（`PAUSE reason=a11y_revoked`，2026-11-26） | 部分（通知监听权限被系统撤销后的停止行为未验证） |
-| A-06 | 重启和时区 | Android 提醒调度 | 无 | 未验证（需多厂商真机 + 省电策略） |
+| A-06 | 重启和时区 | Android 提醒调度 | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复且无离线标记 | 部分（提醒闹钟重建、省电策略、时区切换未验证；需多厂商设备） |
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
@@ -48,8 +48,8 @@
 ## 汇总（共 35 条）
 
 - 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06。
-- 部分：22 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练；A-02/A-03/A-05/E-01/E-03/E-04/E-05 已补 2026-11-26 vivo 真机证据。
-- 未验证：4 条 —— A-06、E-07、X-02、X-05。
+- 部分：23 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练；A-02/A-03/A-05/A-06/E-01/E-03/E-04/E-05/X-04 已补 2026-11-26 vivo 真机证据。
+- 未验证：3 条 —— E-07、X-02、X-05。
 - 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练；E-01 本地目标高亮需先补 App 内入口（`setTarget` 未接线）。
 
 ## 附录：不在 17.3 编号内、但属 26.2 验收的两项

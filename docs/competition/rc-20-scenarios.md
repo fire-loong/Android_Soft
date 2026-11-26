@@ -111,6 +111,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 覆盖安装 | `adb install -r` 新 APK | 通过：登录态与安全审计等本地偏好保留 |
 | 撤通知监听（A-05） | `cmd notification disallow_listener …` 后再注入一条通知 | 通过：监听器不再出现在 Allowed/Live 列表，`source_items` 仍为 1 条（无可上传证据产生） |
 | 大字体 200%（X-04） | `settings put system font_scale 2.0` 后逐页检查 | 通过（修复后）：「今天」页空间名溢出压住首卡 → 已改单行省略；权限页按钮换行正常、无重叠。TalkBack 未实测 |
+| 重启（A-06 片段） | `adb reboot` 后重新连接 Wi-Fi 调试并重建 `adb reverse` | 通过：仍保持登录，事项与「进行中」状态从本地缓存恢复且无离线标记（API 可达）。注：重启后 `enabled_accessibility_services` 被清空（vivo 行为，需重新授权）；提醒闹钟重建与省电策略未验证 |
 
 本轮真机发现：
 1. **已修**：撤销只读无障碍不会停止引导（违反 8.10 撤权即停）→ `GuidanceAccessibilityService.onUnbind` 用独立 scope 暂停会话（避免随 `onDestroy` 的 `scope.cancel()` 丢事件）；悬浮层「恢复」在无障碍关闭时拒绝恢复并给出提示，「待再次同意」状态同样拦截。
