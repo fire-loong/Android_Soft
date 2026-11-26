@@ -109,10 +109,13 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 撤无障碍（R17，本轮修复） | 会话进行中 `settings put secure enabled_accessibility_services ''` | **修复前 FAIL**：会话仍显示进行中且不再产生帧；**修复后 PASS**：立刻转「已暂停」，审计 `PAUSE reason=a11y_revoked`，点「恢复」提示先重新开启无障碍且不恢复。注意：屏幕共享授权仍然有效，采集与「屏幕共享中」通知继续（不属于违例） |
 | 一键停止（R16 片段） | 悬浮层「停止」 | 通过：悬浮层消失、状态栏共享标识消失、`ScreenCaptureService` 停止；审计先 `STOP reason=user_overlay_stop`，采集服务收到停止动作后再补一条 `STOP reason=notification_stop` |
 | 覆盖安装 | `adb install -r` 新 APK | 通过：登录态与安全审计等本地偏好保留 |
+| 撤通知监听（A-05） | `cmd notification disallow_listener …` 后再注入一条通知 | 通过：监听器不再出现在 Allowed/Live 列表，`source_items` 仍为 1 条（无可上传证据产生） |
+| 大字体 200%（X-04） | `settings put system font_scale 2.0` 后逐页检查 | 通过（修复后）：「今天」页空间名溢出压住首卡 → 已改单行省略；权限页按钮换行正常、无重叠。TalkBack 未实测 |
 
 本轮真机发现：
 1. **已修**：撤销只读无障碍不会停止引导（违反 8.10 撤权即停）→ `GuidanceAccessibilityService.onUnbind` 用独立 scope 暂停会话（避免随 `onDestroy` 的 `scope.cancel()` 丢事件）；悬浮层「恢复」在无障碍关闭时拒绝恢复并给出提示，「待再次同意」状态同样拦截。
 2. **未修（阻断 R16）**：本地目标高亮无 App 内入口——`GuidanceSessionManager.setTarget` 在 `apps/android` 内没有任何调用方，受控测试 App 上「高亮唯一目标→用户点击→重新匹配→低置信降级」只能在 JVM 单测覆盖，真机无法执行。
 3. 观察项：本地候选抽取在 App 内走后端 worker（`SOURCE_AI_EXTRACTION`）；API 单进程运行时通知只会停留在 PENDING 作业，验证链路必须同时运行 worker。
+4. **已修（布局）**：200% 字号下「今天」页空间名超出 TopAppBar 与首卡重叠 → 标题单行省略。
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。

@@ -42,7 +42,7 @@
 | X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest` | 部分（真实 MaaS 故障未注入） |
 | X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
 | X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2946 行 / 非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
-| X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测 | 部分（无 TalkBack 实测） |
+| X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测；真机 200%：今天页标题溢出已修为单行省略、权限页按钮换行正常（2026-11-26） | 部分（无 TalkBack 实测） |
 | X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证 |
 
 ## 汇总（共 35 条）

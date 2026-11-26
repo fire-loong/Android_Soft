@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -133,7 +134,14 @@ fun TodayScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(workspaces.find { it.id == currentId }?.name ?: "ActionLoop") },
+                // 200% 字号下长空间名会超出 TopAppBar 固定高度并与列表首卡重叠（真机发现）：单行省略。
+                title = {
+                    Text(
+                        workspaces.find { it.id == currentId }?.name ?: "ActionLoop",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 actions = {
                     TextButton(onClick = onOpenInbox) { Text("待确认") }
                     Box {
