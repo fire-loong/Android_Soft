@@ -23,7 +23,7 @@ pnpm test:ops:fault           # 故障注入：杀 API 进程 → 重启 → 校
 pnpm test:perf                # k6 冒烟（需 API 以 RL_*_MAX=0 启动）
 pnpm test:e2e                 # Playwright 全栈（需 PG + JWT_SECRET + 8080 API）
 cd services && ./mvnw -pl api -am test   # 后端 156 项集成/单测（MaaS 凭证缺失时 1 项跳过）
-cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 102 项（必须 ASCII 路径）
+cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 103 项（必须 ASCII 路径）
 ```
 
 ## 1. 20 条场景清单
@@ -148,3 +148,13 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 102 项（�
 | --- | --- | --- |
 | 双无障碍服务（X-04） | 保留 ActionLoop 只读服务并启用 TalkBack 16.0，`dumpsys accessibility` 检查 | 部分通过：两服务同时 Bound，TalkBack `touchExplorationEnabled=true`，ActionLoop 服务未崩溃；权限页的返回、启动/停止引导、求助及采集开关均有文本/状态语义，右滑后出现返回键焦点框。**未完整验证语音朗读、线性焦点遍历全页和双击激活，不宣称 TalkBack 场景通过**；验后已恢复原无障碍列表，`touchExplorationEnabled=false` |
 | 时区切换（A-06） | 记录 `dumpsys alarm` → `cmd alarm set-timezone Asia/Tokyo` → 恢复 `Asia/Shanghai` | 通过（单机的系统调度层）：同一提醒 `origWhen=1795842000000` 始终不变，活动 ActionLoop 闹钟保持 1 条；东京时区显示 14:00、恢复上海显示 13:00，绝对触发时刻与剩余 elapsed 窗口未被重置。提醒使用 `RTC_WAKEUP` 绝对 Instant，无需新增时区广播接收器 |
+
+### 3.5 分屏悬浮条修复回归（2026-11-28，同一台 vivo）
+
+| 步骤 | 操作 | 结果 |
+| --- | --- | --- |
+| 修复与自动化 | `MainActivity` 接收实际窗口配置变化，`decorView.post` 后调用 `GuidanceOverlay.restoreWindowOrder()`；高亮层/控制条按原顺序 `removeViewImmediate` 并重挂载，失败则停止采集 | 通过：`:app:testDebugUnitTest :app:assembleDebug --no-configuration-cache` 在 ASCII 构建路径成功，Android JVM `tests=103 failures=0 errors=0 skipped=0`；新增 `GuidanceOverlayTest` 验证同一 View 重挂载与顺序。仅复跑 Android 门禁，不构成完整 RC |
+| 第一轮分屏 | 修复 APK 上通过最近任务卡片菜单进入真实分屏 | 单机通过：窗口 ID 由 `6a22edf/dcb31c9` 变为 `1189680/952bf05`，`build/device/split-final-1.png` 中控制条真实可见；退出分屏后再次重挂载，采集服务仍存活 |
+| 第二轮分屏（E-03/E-05） | 再次通过最近任务进入分屏，等待第三方横幅消失后观察并截图 | 单机通过：两个 `type=2038` 窗口 ID 由 `c80bc4f/1dddc44` 变为 `492c40b/7a53bb8`，`build/device/split-final-2.png` 中「引导：已暂停」及恢复/求助/停止控制条真实可见；不是仅凭 `isVisible=true` 或服务存活判定 |
+| 分屏内停止（E-05） | 在第二轮分屏内点击悬浮「停止」 | 单机通过：审计依次写入 `1795844238400|STOP|reason=user_overlay_stop`、`1795844238431|STOP|reason=notification_stop`；`ScreenCaptureService` 与两个 ActionLoop `2038` 窗口均消失，`build/device/split-stopped.png` 显示分屏仍保持 |
+| 覆盖边界 | 对照修复前复测与设备范围 | 原始 P1 在本机两轮回归与分屏内停止已闭环，但原问题是间歇性：未修复版一次干净复测也曾出现控制条可见（`split-p1-real.png`），不能宣称必现或仅凭两轮证明所有时序均已覆盖；本轮仅覆盖 vivo V2352A / Android 16，其他厂商、软键盘与超时仍未验证，多设备覆盖仍是 RC 前置阻断 |

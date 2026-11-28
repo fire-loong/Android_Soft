@@ -3,6 +3,7 @@
 package com.actionloop.android
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -131,6 +132,12 @@ class MainActivity : ComponentActivity() {
         extractSharedText(intent)?.let { sharedText.value = it }
         intent.getStringExtra("openTask")?.let { pendingTask.value = it }
         if (intent.action == GuidanceRuntime.ACTION_HELP_REQUEST) pendingHelp.value = true
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 分屏只改变 Activity 窗口配置；等当前配置/布局事务完成后恢复悬浮窗层级。
+        window.decorView.post { GuidanceRuntime.overlay?.restoreWindowOrder() }
     }
 
     /** 只接受用户主动分享的文字；不读取任何第三方应用数据。*/

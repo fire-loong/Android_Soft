@@ -294,6 +294,40 @@ class GuidanceOverlay(private val context: Context) {
             ) "恢复" else "暂停"
     }
 
+    /**
+     * 多窗口切换可能让既有应用窗口越过 TYPE_APPLICATION_OVERLAY 的既有 WindowState。
+     * 只在系统明确回调多窗口变化时按原顺序重挂载；失败则停止采集，绝不留下无控制条的会话。
+     */
+    fun restoreWindowOrder() {
+        if (!shown) return
+        val hv = highlightView ?: return
+        val bar = controlBar ?: return
+        val highlightParams = hv.layoutParams
+        val barParams = bar.layoutParams
+        // 必须同步 detach：普通 removeView 可能只投递异步 die，随后 addView 会报 already added。
+        if (runCatching {
+                wm.removeViewImmediate(hv)
+                wm.removeViewImmediate(bar)
+            }.isFailure
+        ) {
+            hide()
+            ScreenCaptureService.stop(context)
+            return
+        }
+        if (runCatching {
+                wm.addView(hv, highlightParams)
+                wm.addView(bar, barParams)
+            }.isFailure
+        ) {
+            runCatching { wm.removeViewImmediate(hv) }
+            runCatching { wm.removeViewImmediate(bar) }
+            hide()
+            ScreenCaptureService.stop(context)
+            return
+        }
+        scope.launch { GuidanceRuntime.render(context) }
+    }
+
     fun hide() {
         GuidanceRuntime.detachOverlay(this)
         shown = false
