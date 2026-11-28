@@ -141,3 +141,10 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 102 项（�
 | 离开安全页恢复（E-04） | 返回普通 launcher 主屏 → 手动「恢复」 | 通过：会话回到「仅文字」运行；不会因上一轮安全窗口永久锁死 |
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。
+
+### 3.4 TalkBack 与时区（2026-11-28，同一台 vivo）
+
+| 步骤 | 操作 | 结果 |
+| --- | --- | --- |
+| 双无障碍服务（X-04） | 保留 ActionLoop 只读服务并启用 TalkBack 16.0，`dumpsys accessibility` 检查 | 部分通过：两服务同时 Bound，TalkBack `touchExplorationEnabled=true`，ActionLoop 服务未崩溃；权限页的返回、启动/停止引导、求助及采集开关均有文本/状态语义，右滑后出现返回键焦点框。**未完整验证语音朗读、线性焦点遍历全页和双击激活，不宣称 TalkBack 场景通过**；验后已恢复原无障碍列表，`touchExplorationEnabled=false` |
+| 时区切换（A-06） | 记录 `dumpsys alarm` → `cmd alarm set-timezone Asia/Tokyo` → 恢复 `Asia/Shanghai` | 通过（单机的系统调度层）：同一提醒 `origWhen=1795842000000` 始终不变，活动 ActionLoop 闹钟保持 1 条；东京时区显示 14:00、恢复上海显示 13:00，绝对触发时刻与剩余 elapsed 窗口未被重置。提醒使用 `RTC_WAKEUP` 绝对 Instant，无需新增时区广播接收器 |

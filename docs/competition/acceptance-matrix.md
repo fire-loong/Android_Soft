@@ -14,7 +14,7 @@
 | A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest`；真机：含两日期的通知候选 `due_date` 留空、写入 `uncertainties_json`、`needs_user_confirmation=true`（2026-11-26） | 部分（无真实通知样本集评测） |
 | A-04 | 无任务文本 | `RuleExtractor`、`SensitiveContentDetector` | `RuleExtractorTest`（含闲聊回归） | 已验证（规则层） |
 | A-05 | 权限撤销 | Android 通知监听/发送权限流 | 真机：未勾选白名单时仅记包名、勾选后才上传；撤销只读无障碍后引导会话暂停（`PAUSE reason=a11y_revoked`，2026-11-26） | 部分（通知监听权限被系统撤销后的停止行为未验证） |
-| A-06 | 重启和时区 | Android 提醒调度、`BootReceiver` | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复；2026-11-28：未开自启动时开机广播被 vivo 拦截、0 条闹钟；**开「自启动」后重启，BootReceiver 重建两条 `REMINDER_*` 闹钟且登录态/事项完整** | 部分（提醒重建依赖 OEM 自启动权限，需在产品内提示；时区切换未验证；需多厂商设备） |
+| A-06 | 重启和时区 | Android 提醒调度、`BootReceiver` | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复；2026-11-28：开「自启动」后 BootReceiver 重建闹钟；上海→东京→上海切换时 `origWhen=1795842000000` 不变、活动 `REMINDER_*` 始终 1 条，系统显示 13:00→14:00→13:00 | 部分（提醒重建依赖 OEM 自启动权限，需在产品内提示；RTC_WAKEUP 绝对 Instant 不随时区偏移已单机验证，仍需多厂商设备） |
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
@@ -42,7 +42,7 @@
 | X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest`、`CandidateExtractionServiceTest`；真机：真实 MaaS 两次 schema 失败曾致作业死信、通知被吞（2026-11-28 实测，已修：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK`） | 部分（配额/超时故障未注入） |
 | X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
 | X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2946 行 / 非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
-| X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测；真机 200%：今天页标题溢出已修为单行省略、权限页按钮换行正常（2026-11-26） | 部分（无 TalkBack 实测） |
+| X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测；真机 200% 布局已测（2026-11-26）；2026-11-28 TalkBack 与只读服务同时 Bound，权限页控件有文本/状态语义并观察到返回键焦点框 | 部分（TalkBack 语音朗读、全页线性焦点与双击激活未完整验证；键盘未验证） |
 | X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证 |
 
 ## 汇总（共 35 条）
