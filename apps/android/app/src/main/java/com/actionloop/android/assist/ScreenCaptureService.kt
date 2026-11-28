@@ -77,6 +77,29 @@ internal object SecureFrameDetector {
 }
 
 /**
+ * 黑帧持续判定：普通应用切换/窗口动画的瞬时黑场不得判为 FLAG_SECURE。
+ * 阈值取 1.2s，覆盖 vivo 等 OEM 较长的窗口转场动画；安全页是静止黑场，仍会被捕获。
+ * 离开黑场后由采集侧把起点清零。
+ */
+internal object SecureFrameLatch {
+    const val HOLD_MS = 1200L
+
+    fun isSustained(blackSinceMs: Long, nowMonoMs: Long): Boolean =
+        blackSinceMs > 0L && nowMonoMs - blackSinceMs >= HOLD_MS
+}
+
+/**
+ * 本机会话最长存活时间（指导书 8.3 / 8.6：超时是必须的停止路径）。
+ * 与远程协助默认 15 分钟一致；到期由采集循环主动停止，避免长期占用屏幕采集与悬浮层。
+ */
+internal object GuidanceSessionTimeout {
+    const val MAX_SESSION_MS = 15 * 60 * 1000L
+
+    fun isExpired(startedMonoMs: Long, nowMonoMs: Long): Boolean =
+        startedMonoMs > 0L && nowMonoMs - startedMonoMs >= MAX_SESSION_MS
+}
+
+/**
  * 屏幕采集前台服务（指导书 8.3 / 8.10 / 安全边界）。
  *
  * - 仅在用户当次授予 MediaProjection 后启动，不缓存授权；
@@ -97,8 +120,12 @@ class ScreenCaptureService : Service() {
     private var overlay: GuidanceOverlay? = null
     private var renderJob: Job? = null
 
-    /** 采集节流时间戳，使用单调时钟 [android.os.SystemClock.elapsedRealtime]，不受系统改时间影响。 */
-    @Volatile private var lastProcessMs = 0L
+    /**
+     * 黑帧闩锁（8.5/8.10）：MediaProjection 对 FLAG_SECURE 窗口输出黑帧。
+     * 每个到达帧都采样；只有持续黑帧超过 [SecureFrameLatch.HOLD_MS] 才判为安全窗口，
+     * 避免普通应用切换/窗口动画的瞬时黑场误暂停。离开黑场后由非黑帧清零。
+     */
+    @Volatile private var blackSinceMs = 0L
 
     /** 资源句柄的整体摘除锁：采集回调线程与主线程可能并发进入，摘除与释放必须原子分界。 */
     private val resourceLock = Any()
@@ -110,6 +137,9 @@ class ScreenCaptureService : Service() {
      * 旧渲染循环只能停掉与自身纪元一致的会话，避免“旧会话看到 STOPPED 就把刚启动的新会话 stopSelf 掉”。
      */
     private var sessionEpoch = 0
+
+    /** 本会话开始的单调时钟，用于 15 分钟超时停止；0 表示尚未开始。 */
+    @Volatile private var sessionStartedMonoMs = 0L
 
     private class SessionResources(
         val display: VirtualDisplay?,
@@ -158,6 +188,8 @@ class ScreenCaptureService : Service() {
         // 只在本会话资源整体摘除后挂载，避免旧会话遗留的 teardown 去 hide 新悬浮层。
         releaseResources(detachResources())
         val epoch = synchronized(resourceLock) { sessionEpoch += 1; sessionEpoch }
+        sessionStartedMonoMs = android.os.SystemClock.elapsedRealtime()
+        blackSinceMs = 0L
         synchronized(resourceLock) { overlay = newOverlay }
         scope.launch {
             GuidanceRuntime.manager(this@ScreenCaptureService).start()
@@ -211,29 +243,25 @@ class ScreenCaptureService : Service() {
                 stopCapture("lockscreen")
                 return@setOnImageAvailableListener
             }
-            // 暂停/停止后不再处理任何帧（8.5 暂停媒体），只保留服务与悬浮层供用户恢复/停止。
-            if (!GuidanceRuntime.manager(this@ScreenCaptureService).isCollecting()) {
-                r.acquireLatestImage()?.close()
-                return@setOnImageAvailableListener
-            }
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastProcessMs < 400) { r.acquireLatestImage()?.close(); return@setOnImageAvailableListener }
-            lastProcessMs = now
+            // 每个到达帧都采样黑帧（约 40×30 次读取，开销可忽略），并更新闩锁：
+            // - 即使处于 PAUSED 也更新，才能在离开安全页后解除闩锁；
+            // - 不再用 400ms 节流丢弃转场黑帧（否则静止后无新帧，永久漏判 FLAG_SECURE）。
             val image = r.acquireLatestImage()
             if (image != null) {
-                // 关键：只在内存处理，立即关闭，绝不写文件/不落盘。
-                runCatching {
-                    // FLAG_SECURE 窗口在 MediaProjection 截屏中会被系统涂黑（8.5/8.10），据此清除高亮并暂停。
-                    if (isMostlyBlack(image)) {
-                        val mgr = GuidanceRuntime.manager(this@ScreenCaptureService)
-                        scope.launch {
-                            mgr.onCaptureSecure()
-                            GuidanceRuntime.render(this@ScreenCaptureService)
-                        }
-                    }
+                val black = runCatching { isMostlyBlack(image) }.getOrDefault(false)
+                val nowMono = android.os.SystemClock.elapsedRealtime()
+                // 投影刚建立时的预热帧也可能是全黑；前 2 秒不计入黑场闩锁，避免启动即误暂停。
+                val warmupDone = nowMono - sessionStartedMonoMs >= 2000L
+                // 即使处于 PAUSED 也更新：离开安全页后必须能清零，恢复才真正生效。
+                if (black && warmupDone) {
+                    if (blackSinceMs == 0L) blackSinceMs = nowMono
+                } else {
+                    blackSinceMs = 0L
                 }
+                // 关键：只在内存处理，立即关闭，绝不写文件/不落盘。
                 image.close()
             }
+            // 暂停/停止后不再处理其他帧（8.5 暂停媒体），暂停动作由渲染循环统一执行。
         }, handler)
 
         val display = runCatching {
@@ -263,18 +291,49 @@ class ScreenCaptureService : Service() {
         renderJob?.cancel()
         renderJob = scope.launch {
             var lastDisplayKey: String? = null
+            var wasCollecting = false
             while (isActive) {
                 // 新会话已建立：本循环属于旧会话，直接退出，绝不能清理新会话资源或 stopSelf。
                 if (!isCurrentEpoch(epoch)) return@launch
+                val mgr = GuidanceRuntime.manager(this@ScreenCaptureService)
+                val collecting = mgr.isCollecting()
+                // 从暂停恢复：先清零黑场起点，等待恢复后的新帧重新确认。
+                // 否则转场期间的旧闩锁会让“恢复”后的第一个 tick 立刻再次暂停。
+                // 代价是若恢复时仍停留在 FLAG_SECURE 页，最多再等一个闩锁周期才暂停；
+                // 密码/支付关键词/锁屏等无障碍硬判定不受影响，仍立即可用。
+                if (collecting && !wasCollecting) blackSinceMs = 0L
+                wasCollecting = collecting
+                // 会话超时（8.3/8.6）：主动停止采集与悬浮层，不能长期占用授权。
+                if (GuidanceSessionTimeout.isExpired(
+                        sessionStartedMonoMs, android.os.SystemClock.elapsedRealtime()
+                    )
+                ) {
+                    // 超时是停止路径，但不能静默消失：先给用户一条可见提示，再释放采集。
+                    android.widget.Toast.makeText(
+                        this@ScreenCaptureService,
+                        "引导已达 15 分钟上限，已自动停止",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    stopCapture("session_timeout")
+                    return@launch
+                }
                 val dm = resources.displayMetrics
                 val orientation = resources.configuration.orientation
                 val key = "${dm.widthPixels}x${dm.heightPixels}@$orientation"
                 if (lastDisplayKey != null && lastDisplayKey != key) {
                     // 旋转/分屏/分辨率变化：旧归一化坐标立即作废并暂停（8.4/8.5）。
-                    GuidanceRuntime.manager(this@ScreenCaptureService).onDisplayChanged()
+                    mgr.onDisplayChanged()
                 }
                 lastDisplayKey = key
+                // 先渲染：恢复/状态变化会重绘悬浮层，确保虚拟显示产生新帧供黑场采样。
                 GuidanceRuntime.render(this@ScreenCaptureService)
+                // FLAG_SECURE 黑帧闩锁：持续黑场超过阈值才暂停；离开安全页后由非黑帧清零。
+                if (collecting && SecureFrameLatch.isSustained(
+                        blackSinceMs, android.os.SystemClock.elapsedRealtime()
+                    )
+                ) {
+                    mgr.onCaptureSecure()
+                }
                 // 远程停止/会话结束后，服务必须真正释放采集与悬浮层（8.7），不能只改状态。
                 if (GuidanceRuntime.manager(this@ScreenCaptureService).snapshot().state == GuidanceSessionState.STOPPED &&
                     isCurrentEpoch(epoch)

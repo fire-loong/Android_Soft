@@ -26,7 +26,18 @@ data class GuidanceFrame(
     val isSecure: Boolean = false,
     /** 锁屏/关键guard：出现即停止。 */
     val isLocked: Boolean = false,
-    val allowlistedPackage: Boolean = false
+    val allowlistedPackage: Boolean = false,
+    /**
+     * 当前包名的窗口层级中是否存在“顶部搜索框”（仅系统搜索类包会计算）。
+     * 用于搜索聚合页语义判定：转场帧的 rootInActiveWindow 可能暂时不包含搜索框，
+     * 但窗口层级仍能证明这是搜索页，避免单帧误暂停。
+     */
+    val hasSearchInput: Boolean = false,
+    /**
+     * 搜索聚合页的短时转场宽限：搜索窗口刚出现、窗口层级还枚举不到该包时为 true。
+     * 仅对系统搜索聚合包、且最多持续约 1.5 秒；密码/FLAG_SECURE/锁屏等硬判定不受影响。
+     */
+    val searchSurfaceTransition: Boolean = false
 ) {
     @Serializable
     data class Insets(val left: Int, val top: Int, val right: Int, val bottom: Int)

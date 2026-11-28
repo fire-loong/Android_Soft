@@ -74,6 +74,17 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
+        actionContainer.addView(Button(this).apply {
+            text = "R16 目标匹配演示页"
+            contentDescription = "打开中性目标匹配演示页"
+            setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity, GuidanceDemoActivity::class.java))
+            }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
         buildList()
         updateStatus("就绪")
     }

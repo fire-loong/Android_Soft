@@ -115,7 +115,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 103 项（�
 
 本轮真机发现：
 1. **已修**：撤销只读无障碍不会停止引导（违反 8.10 撤权即停）→ `GuidanceAccessibilityService.onUnbind` 用独立 scope 暂停会话（避免随 `onDestroy` 的 `scope.cancel()` 丢事件）；悬浮层「恢复」在无障碍关闭时拒绝恢复并给出提示，「待再次同意」状态同样拦截。
-2. **未修（阻断 R16）**：本地目标高亮无 App 内入口——`GuidanceSessionManager.setTarget` 在 `apps/android` 内没有任何调用方，受控测试 App 上「高亮唯一目标→用户点击→重新匹配→低置信降级」只能在 JVM 单测覆盖，真机无法执行。
+2. **已修（R16，见 3.6）**：本地目标高亮原先无 App 内入口——`GuidanceSessionManager.setTarget` 在 `apps/android` 内没有调用方。已在权限页补「本地目标高亮（受控测试 App）」卡片并在真机跑通「设置目标→高亮→用户点击→重新匹配→低置信降文字→停止」。
 3. 观察项：本地候选抽取在 App 内走后端 worker（`SOURCE_AI_EXTRACTION`）；API 单进程运行时通知只会停留在 PENDING 作业，验证链路必须同时运行 worker。
 4. **已修（布局）**：200% 字号下「今天」页空间名超出 TopAppBar 与首卡重叠 → 标题单行省略。
 
@@ -135,7 +135,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 103 项（�
 | 悬浮条可见性（E-05） | 分屏后观察 | **FAIL（P1 可用性）**：悬浮控制条窗口仍存在（`type=2038`，frame 在上半屏），但界面上不可见，用户无法点「停止」 |
 | 替代停止路径（E-05） | 通知栏展开「ActionLoop 引导进行中」→「停止引导」 | 通过：`ScreenCaptureService` 退出、共享标识消失。注：直接点通知正文（“点此停止”）不会停止，必须展开后点「停止引导」动作 |
 | 外部停止尝试 | `am startservice -a …STOP_CAPTURE` | 通过（符合设计）：服务未导出，外部 uid 被拒绝，无法绕过 App 内授权路径 |
-| 桌面敏感词（E-04 边界） | 回到 `com.bbk.launcher2` 主屏并逐页观察 | **修复后通过**：launcher 包名跳过支付等文案关键词，主屏不再误暂停，审计无新增 launcher `SENSITIVE_PAGE`；锁屏/FLAG_SECURE/密码字段硬判定仍生效；远程高亮/指针/文字共用同一判定并有 JVM 回归测试。新发现：桌面全局搜索是独立包 `com.vivo.globalsearch`，搜索「支付宝」仍命中关键词并暂停，尚未按 launcher 一并豁免，避免把非桌面内容笼统放行 |
+| 桌面敏感词（E-04 边界） | 回到 `com.bbk.launcher2` 主屏并逐页观察 | **修复后通过**：launcher 包名跳过支付等文案关键词，主屏不再误暂停，审计无新增 launcher `SENSITIVE_PAGE`；锁屏/FLAG_SECURE/密码字段硬判定仍生效；远程高亮/指针/文字共用同一判定并有 JVM 回归测试。新发现：桌面全局搜索是独立包 `com.vivo.globalsearch`，搜索「支付宝」仍命中关键词并暂停，尚未按 launcher 一并豁免，避免把非桌面内容笼统放行（已于 3.6 修复复测） |
 | 支付安全页（E-04） | 打开受控 `PaymentActivity`（真实 FLAG_SECURE + 支付文案，无交易）→ 恢复引导 | 通过：页面内容被系统涂黑，仅悬浮条可见；写 `SENSITIVE_PAGE|com.actionloop.guidancetest: 命中敏感关键词: 支付` 并暂停，无高亮残留 |
 | 独立 FLAG_SECURE（E-04） | 打开不含敏感词/输入框的 `SecureActivity` → 恢复引导 | **修复前 FAIL**：系统栏与悬浮条亮像素使全屏黑帧比例达不到 1%，会话仍运行。**最终修复后通过**：改为 40 个水平采样行统计，至少 20% 基本全黑行即命中，避免系统栏/悬浮条/中央弹窗/IME 的亮区稀释；写 `CAPTURE_SECURE|FLAG_SECURE frame`，悬浮条立即变为「已暂停」（最终审计时间戳 `1795839624346`）。`SecureFrameDetectorTest` 覆盖 80% 区域被遮挡、亮页、零星黑行与截断缓冲 |
 | 离开安全页恢复（E-04） | 返回普通 launcher 主屏 → 手动「恢复」 | 通过：会话回到「仅文字」运行；不会因上一轮安全窗口永久锁死 |
@@ -158,3 +158,24 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 103 项（�
 | 第二轮分屏（E-03/E-05） | 再次通过最近任务进入分屏，等待第三方横幅消失后观察并截图 | 单机通过：两个 `type=2038` 窗口 ID 由 `c80bc4f/1dddc44` 变为 `492c40b/7a53bb8`，`build/device/split-final-2.png` 中「引导：已暂停」及恢复/求助/停止控制条真实可见；不是仅凭 `isVisible=true` 或服务存活判定 |
 | 分屏内停止（E-05） | 在第二轮分屏内点击悬浮「停止」 | 单机通过：审计依次写入 `1795844238400|STOP|reason=user_overlay_stop`、`1795844238431|STOP|reason=notification_stop`；`ScreenCaptureService` 与两个 ActionLoop `2038` 窗口均消失，`build/device/split-stopped.png` 显示分屏仍保持 |
 | 覆盖边界 | 对照修复前复测与设备范围 | 原始 P1 在本机两轮回归与分屏内停止已闭环，但原问题是间歇性：未修复版一次干净复测也曾出现控制条可见（`split-p1-real.png`），不能宣称必现或仅凭两轮证明所有时序均已覆盖；本轮仅覆盖 vivo V2352A / Android 16，其他厂商、软键盘与超时仍未验证，多设备覆盖仍是 RC 前置阻断 |
+
+### 3.6 R16 入口、搜索语义与安全边界收口（2026-11-28，同一台 vivo V2352A / Android 16）
+
+构建与自动化（ASCII 路径 `C:\ActionLoopBuild\apps\android`）：`.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :guidancetest:assembleDebug --no-configuration-cache` 成功；Android JVM `tests=122 failures=0 errors=0 skipped=0`（新增 `GuidanceSessionTimeoutTest`、`GuidanceSessionManagerTest` 目标用例、`SensitivePageDetectorTest` 搜索页/转场宽限用例）。以下均为**最终构建**安装后的真机操作记录，操作全部由测试者点击完成，产品端只读、只渲染。
+
+| 项 | 操作 | 结果 |
+| --- | --- | --- |
+| R16 入口（E-01） | 权限页「本地目标高亮（受控测试 App）」卡片 → 「目标：下一步」 | 通过：Toast「已设置目标「下一步」，请切换到受控测试 App 查看」，「当前目标：下一步」；审计 `1795854213201\|LOCAL_TARGET_SET\|pkg=com.actionloop.guidancetest label=下一步`。按钮仅在会话活跃（且本地目标需无障碍已开启）时可用，未开启会话时点击给出明确提示而非静默失败 |
+| R16 高亮（E-01） | 切到受控演示页 `GuidanceDemoActivity` | 通过：绿色描边高亮唯一「下一步」，悬浮条「引导：高亮中」；审计 `LOCAL_MATCH frame=5a301743-… score=1.00` |
+| R16 点击后重匹配（E-01） | 测试者本人点击高亮的「下一步」 | 通过：页面文案变「步骤：1 · 点击「下一步」」，新帧 `LOCAL_MATCH frame=6fbdf52a-… score=1.00` 重新高亮；再次切回演示页又生成 `75a35cdb-… score=1.00`，说明按 frameId 重新匹配、旧标注失效路径生效 |
+| R16 低置信降文字（E-01） | 回 App 设置「低置信：确认提交」（`1795854326673`）→ 再切演示页 | 通过：仅悬浮条「引导：仅文字…」，页面无任何描边，审计无新的 `LOCAL_MATCH`（未达阈值不猜目标） |
+| R16 停止 | 悬浮层「停止」 | 通过：审计 `1795854354951\|STOP\|reason=user_overlay_stop` + `notification_stop`，`ScreenCaptureService` 记录消失 |
+| 搜索误暂停（E-04） | 会话进行中 → 桌面下拉打开 `com.vivo.globalsearch` → 输入 `zhifubao` 回车 | 通过：搜索首页与结果页（含“支付宝”“支付宝付款码”等）悬浮条保持「引导：仅文字…」，审计无 `SENSITIVE_PAGE`。**复测中发现并修复**：搜索窗口刚出现时 `windows` 层级里尚无该包（实测只有 launcher/upslide 等系统层），转场单帧仍会把“支付”误判为敏感页；现改为「搜索聚合包 + 探测不到该包窗口 → 最多 1.5s 转场宽限（`SEARCH_SURFACE_GRACE` 审计）」，窗口可枚举后仍要求顶部搜索框结构证据；密码框 / FLAG_SECURE / 支付页硬判定不受影响（JVM 3 例覆盖：转场豁免、非搜索包不豁免、宽限下硬判定生效） |
+| 软键盘（E-03 边界） | 全局搜索页 IME 弹出时观察 | 单机通过（非分屏）：悬浮条仍可见，未被 IME 遮挡或误暂停 |
+| 支付页硬判定（E-04） | 打开受控 `PaymentActivity`（真实 FLAG_SECURE + 支付文案） | 通过：审计 `1795853970367\|SENSITIVE_PAGE\|com.actionloop.guidancetest: 命中敏感关键词: 支付`，悬浮条「引导：已暂停…」 |
+| 独立 FLAG_SECURE（E-04） | 打开不含敏感词/输入框的 `SecureActivity` 并「恢复」 | 通过：约 4s 内写 `1795854012406\|CAPTURE_SECURE\|FLAG_SECURE frame` 并暂停（1.2s 持续黑场闩锁 + 2s 启动预热宽限） |
+| 普通切换不误暂停（E-04 回归） | 「恢复」后 14s 内在受控主页/演示页/本 App 之间切换 3 次 | 通过：状态保持「仅文字…」运行，无新增 `CAPTURE_SECURE`（验证恢复边沿清零 + 先渲染后判定的修改） |
+| 分辨率变化（E-03 边界） | 会话进行中 `wm size 1080x2340`，随后 `wm size reset` | 通过（符合设计，上一构建）：写 `1795851841584\|DISPLAY_CHANGED\|rotation/resolution changed` 并暂停，悬浮条按新尺寸重新布局；reset 后恢复原尺寸，仍为暂停态等待用户「恢复」 |
+| 系统策略观察 | 在系统设置页观察悬浮层 | 说明：`dumpsys window` 显示 `mForceHideNonSystemOverlayWindow=true`，系统主动隐藏非系统悬浮层（窗口仍存在）；离开设置页后悬浮条自动恢复，属于 OS 防劫持策略，不是产品缺陷，需在演示脚本中避免在设置页要求点按悬浮条 |
+
+仍未覆盖（如实记录）：分屏内的软键盘组合（本轮 adb 手势无法稳定进入分屏，未重测）、其他厂商/其他分辨率组合（仅一台 vivo V2352A / Android 16）、15 分钟真实超时（仅 `GuidanceSessionTimeoutTest` JVM 边界覆盖；真机等待成本高，未跑）。

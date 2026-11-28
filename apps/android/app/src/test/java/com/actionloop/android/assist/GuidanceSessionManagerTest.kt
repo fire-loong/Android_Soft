@@ -535,6 +535,60 @@ class GuidanceSessionManagerTest {
     }
 
     /**
+     * R16 App 内入口：会话先进入文字降级（例如停留在本应用页面），用户再设置本地目标，
+     * 切换到受控测试 App 的帧必须重新对齐并高亮。
+     */
+    @Test
+    fun `会话进行中设置目标后切换到受控页重新高亮`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        // 尚未设置目标：普通帧按低置信降级为文字。
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "btn_next")))
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        manager.setTarget(nextTarget())
+        assertEquals("下一步", manager.snapshot().localTargetLabel)
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "btn_next"), frameId = "frame-2"))
+        assertNotNull(manager.snapshot().highlight)
+        assertEquals("frame-2", manager.snapshot().highlight!!.frameId)
+        assertTrue(AssistSecurityAudit.recent(context).any { it.kind == "LOCAL_TARGET_SET" })
+    }
+
+    @Test
+    fun `低置信目标只保留文字且快照无高亮`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        // “确认提交”只在包含维度命中“提交”（0.60 < 0.65），必须降级文字。
+        manager.setTarget(GuidanceTarget("com.actionloop.guidancetest", listOf("确认提交")))
+        manager.onFrame(frameWith(block("提交", 0.1, 0.7, viewId = "btn_submit")))
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertNull(manager.snapshot().highlight)
+        assertEquals("确认提交", manager.snapshot().localTargetLabel)
+    }
+
+    @Test
+    fun `会话启动前设置目标被明确拒绝`() = runBlocking {
+        // IDLE 下设置会被 start() 的 reset 清空；必须返回 false，避免 UI 乐观提示成功。
+        assertFalse(manager.setTarget(nextTarget()))
+        assertNull(manager.snapshot().localTargetLabel)
+        manager.start()
+        // 等待屏幕授权期间同样拒绝。
+        assertFalse(manager.setTarget(nextTarget()))
+        manager.consentGranted()
+        assertTrue(manager.setTarget(nextTarget()))
+    }
+
+    @Test
+    fun `切换目标立即清除旧高亮`() = runBlocking {
+        manager.start(); manager.consentGranted()
+        manager.setTarget(nextTarget())
+        manager.onFrame(frameWith(block("下一步", 0.1, 0.7, viewId = "btn_next")))
+        assertNotNull(manager.snapshot().highlight)
+        // 页面静止、没有新帧时也必须立刻清掉旧高亮，避免“当前目标 B、画面仍高亮 A”。
+        manager.setTarget(GuidanceTarget("com.actionloop.guidancetest", listOf("提交"), viewIdHint = "btn_submit"))
+        assertNull(manager.snapshot().highlight)
+        assertEquals(GuidanceSessionState.TEXT_ONLY, manager.snapshot().state)
+        assertEquals("提交", manager.snapshot().localTargetLabel)
+    }
+
+    /**
      * 真机回归（纯远程协助）：协助者标注落下后，本机持续上报同一帧（frameId 不变）时，
      * 不得因为“没有本地目标”而把远程 HIGHLIGHT 清掉或强制降级 TEXT_ONLY。
      */

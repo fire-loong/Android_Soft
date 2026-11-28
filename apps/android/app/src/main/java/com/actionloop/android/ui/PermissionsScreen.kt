@@ -59,7 +59,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.actionloop.android.assist.AssistMediaService
 import com.actionloop.android.assist.AssistSignalClient
+import com.actionloop.android.assist.GUIDANCE_TEST_APP_PACKAGE
 import com.actionloop.android.assist.GuidanceRuntime
+import com.actionloop.android.assist.GuidanceSessionState
+import com.actionloop.android.assist.GuidanceTarget
 import com.actionloop.android.assist.ScreenCaptureService
 import com.actionloop.android.data.AssistSessionView
 import com.actionloop.android.data.Session
@@ -89,7 +92,8 @@ fun PermissionsScreen(onBack: () -> Unit) {
 
     var overlayGranted by remember { mutableStateOf(GuidanceRuntime.canDrawOverlays(context)) }
     var a11yEnabled by remember { mutableStateOf(GuidanceRuntime.isAccessibilityEnabled(context)) }
-    var sessionActive by remember { mutableStateOf(false) }
+    var sessionState by remember { mutableStateOf<GuidanceSessionState?>(null) }
+    var localTargetLabel by remember { mutableStateOf<String?>(null) }
     var assistSession by remember { mutableStateOf(AssistSignalClient.current()) }
     var assistBusy by remember { mutableStateOf(false) }
     var mediaActive by remember { mutableStateOf(AssistMediaService.isRunning) }
@@ -150,7 +154,9 @@ fun PermissionsScreen(onBack: () -> Unit) {
         while (true) {
             overlayGranted = GuidanceRuntime.canDrawOverlays(context)
             a11yEnabled = GuidanceRuntime.isAccessibilityEnabled(context)
-            sessionActive = runCatching { GuidanceRuntime.overlay?.isShown() == true }.getOrDefault(false)
+            val snapshot = runCatching { GuidanceRuntime.manager(context).snapshot() }.getOrNull()
+            sessionState = snapshot?.state
+            localTargetLabel = snapshot?.localTargetLabel
             assistSession = AssistSignalClient.current()
             mediaActive = AssistMediaService.isRunning
             delay(1000)
@@ -162,6 +168,63 @@ fun PermissionsScreen(onBack: () -> Unit) {
         exactGranted = ReminderScheduler.canScheduleExact(context)
         notifGranted = notificationsEnabled(context)
         scope.launch { allowed = AllowlistStore.allowed(context) }
+    }
+
+    /** 只有这些状态才允许设置目标；PAUSED 需用户先恢复，IDLE/授权中/终态拒绝。 */
+    val canSetTarget = sessionState != null && sessionState in setOf(
+        GuidanceSessionState.ACTIVE,
+        GuidanceSessionState.ALIGNING,
+        GuidanceSessionState.HIGHLIGHTING,
+        GuidanceSessionState.WAITING_USER,
+        GuidanceSessionState.TEXT_ONLY
+    )
+
+    /**
+     * 设置本地目标高亮（仅受控测试 App）：只产生高亮/文字提示，绝不代替用户点击。
+     * 目标必须在引导会话进行中设置：会话启动会清空上一轮目标（见 GuidanceSessionManager.start）。
+     */
+    fun applyLocalTarget(label: String?, lowConfidence: Boolean = false) {
+        if (label != null && !canSetTarget) {
+            val reason = when (sessionState) {
+                GuidanceSessionState.PAUSED -> "引导已暂停，请先在悬浮条点“恢复”"
+                GuidanceSessionState.CONSENT_PENDING -> "正在等待屏幕授权，请稍后设置目标"
+                else -> "请先点“启动一次引导”并完成屏幕授权"
+            }
+            Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (label != null && !a11yEnabled) {
+            Toast.makeText(context, "请先开启只读无障碍，否则无法匹配目标", Toast.LENGTH_LONG).show()
+            return
+        }
+        scope.launch {
+            val target = label?.let { text ->
+                GuidanceTarget(
+                    packageName = GUIDANCE_TEST_APP_PACKAGE,
+                    labels = listOf(text),
+                    // 低置信演示故意不提供节点/角色证据，只保留包含匹配，验证降级为文字。
+                    viewIdHint = if (lowConfidence) null else when (text) {
+                        "下一步" -> "btn_next"
+                        "提交" -> "btn_submit"
+                        else -> null
+                    },
+                    roleHint = if (lowConfidence) null else "button"
+                )
+            }
+            val manager = GuidanceRuntime.manager(context)
+            if (!manager.setTarget(target)) {
+                // 竞态防护：设置动作落在 start/reset 之前时目标会被静默清空，这里明确告知而不是乐观提示。
+                Toast.makeText(context, "引导会话尚未就绪，请稍后重试", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            localTargetLabel = manager.snapshot().localTargetLabel
+            GuidanceRuntime.render(context)
+            Toast.makeText(
+                context,
+                if (target == null) "已清除本地目标" else "已设置目标「$label」，请切换到受控测试 App 查看",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     Scaffold(
@@ -263,7 +326,13 @@ fun PermissionsScreen(onBack: () -> Unit) {
                     Text(
                         "悬浮层：${if (overlayGranted) "已授权" else "未授权"} · " +
                             "无障碍：${if (a11yEnabled) "已开启（只读）" else "未开启"} · " +
-                            "会话：${if (sessionActive) "进行中" else "未开始"}",
+                            "会话：${when (sessionState) {
+                                GuidanceSessionState.CONSENT_PENDING -> "等待屏幕授权"
+                                GuidanceSessionState.PAUSED -> "已暂停（敏感页或无障碍撤权）"
+                                GuidanceSessionState.COMPLETED -> "本步完成"
+                                GuidanceSessionState.STOPPED, GuidanceSessionState.IDLE, null -> "未开始"
+                                else -> "进行中"
+                            }}",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(10.dp))
@@ -380,6 +449,52 @@ fun PermissionsScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.error
                         )
                     }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("本地目标高亮（受控测试 App）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "仅对受控测试 App（$GUIDANCE_TEST_APP_PACKAGE）生效：只高亮唯一目标，" +
+                            "点击 / 输入仍由你亲自完成，绝不代替任何第三方 App 操作。" +
+                            "页面变化后自动重新匹配；匹配不达标时只保留文字提示。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "当前目标：${localTargetLabel ?: "未设置"}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            enabled = canSetTarget && a11yEnabled,
+                            onClick = { applyLocalTarget("下一步") }
+                        ) { Text("目标：下一步") }
+                        Button(
+                            enabled = canSetTarget && a11yEnabled,
+                            onClick = { applyLocalTarget("提交") }
+                        ) { Text("目标：提交") }
+                        Button(
+                            enabled = canSetTarget && a11yEnabled,
+                            onClick = { applyLocalTarget("确认提交", lowConfidence = true) }
+                        ) { Text("低置信：确认提交") }
+                        Button(
+                            enabled = canSetTarget,
+                            onClick = { applyLocalTarget(null) }
+                        ) { Text("清除目标") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "验证顺序：启动一次引导 → 设置目标 → 切到受控测试 App；" +
+                            "点击目标后页面变化会重新匹配；低置信目标只显示文字，不画高亮。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))

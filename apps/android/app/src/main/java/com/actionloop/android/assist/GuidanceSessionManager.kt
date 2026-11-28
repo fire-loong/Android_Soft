@@ -79,11 +79,15 @@ class GuidanceSessionManager(private val context: Context) {
         val pointer: NormalizedBounds?,
         val textHint: String?,
         val pageSensitive: Boolean,
-        val sensitiveReason: String?
+        val sensitiveReason: String?,
+        /** 当前本地引导目标的首个文本锚点；未设置时为 null（供 App 内入口回显）。 */
+        val localTargetLabel: String? = null
     )
 
     suspend fun snapshot(): Snapshot = mutex.withLock {
-        val frameSens = currentFrame?.let { SensitivePageDetector.evaluate(it, context.packageName, launcherPackages) }
+        val frameSens = currentFrame?.let {
+            SensitivePageDetector.evaluate(it, context.packageName, launcherPackages)
+        }
         val captureSens = captureSecureUntilMs > monoNow()
         val sensitive = frameSens?.sensitive == true || captureSens
         val reason = when {
@@ -127,7 +131,8 @@ class GuidanceSessionManager(private val context: Context) {
             pointer = pointer?.bounds,
             textHint = textHint?.text,
             pageSensitive = sensitive,
-            sensitiveReason = reason
+            sensitiveReason = reason,
+            localTargetLabel = target?.labels?.firstOrNull()
         )
     }
 
@@ -488,14 +493,34 @@ class GuidanceSessionManager(private val context: Context) {
     /**
      * 设置当前步骤的引导目标；必须在 [start] 之后调用（新会话会清空上一轮目标）。
      * 传 null 表示撤销目标，后续帧一律降级文字。
+     *
+     * @return 是否已生效。IDLE / CONSENT_PENDING / 终态下拒绝，避免 UI 乐观提示成功、
+     *   随后被 [start] 的 reset 静默清空（R16 真机入口的竞态防护）。
      */
-    suspend fun setTarget(target: GuidanceTarget?) = mutex.withLock {
+    suspend fun setTarget(target: GuidanceTarget?): Boolean = mutex.withLock {
+        if (state == GuidanceSessionState.IDLE ||
+            state == GuidanceSessionState.CONSENT_PENDING ||
+            state.isTerminal()
+        ) {
+            return@withLock false
+        }
         this.target = target
         this.lastMatch = null
-        if (target == null && state == GuidanceSessionState.ALIGNING) {
-            highlight = null
+        // 目标变更立即清掉旧高亮/文字，避免页面静止时旧目标标注残留（最长 10s）。
+        clearAnnotationsLocked()
+        if (state == GuidanceSessionState.ALIGNING ||
+            state == GuidanceSessionState.HIGHLIGHTING ||
+            state == GuidanceSessionState.WAITING_USER
+        ) {
             setStateLocked(GuidanceSessionState.TEXT_ONLY)
         }
+        // 记录目标设置/撤销，便于真机验收时确认入口确实生效（不含屏幕内容）。
+        AssistSecurityAudit.record(
+            context,
+            if (target == null) "LOCAL_TARGET_CLEARED" else "LOCAL_TARGET_SET",
+            "pkg=${target?.packageName ?: "-"} label=${target?.labels?.firstOrNull() ?: "-"}"
+        )
+        true
     }
 
     /** 当前帧标识快照，供协助信令端发布 META（不含任何屏幕内容）。 */

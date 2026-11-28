@@ -15,7 +15,9 @@ class SensitivePageDetectorTest {
         pkg: String = "com.actionloop.guidancetest",
         blocks: List<GuidanceFrame.TextBlock> = emptyList(),
         secure: Boolean = false,
-        locked: Boolean = false
+        locked: Boolean = false,
+        hasSearchInput: Boolean = false,
+        searchSurfaceTransition: Boolean = false
     ) = GuidanceFrame(
         frameId = "frame-1",
         packageName = pkg,
@@ -24,18 +26,25 @@ class SensitivePageDetectorTest {
         textBlocks = blocks,
         isSecure = secure,
         isLocked = locked,
-        allowlistedPackage = true
+        allowlistedPackage = true,
+        hasSearchInput = hasSearchInput,
+        searchSurfaceTransition = searchSurfaceTransition
     )
 
     private fun block(
         text: String,
         editable: Boolean = false,
-        password: Boolean = false
+        password: Boolean = false,
+        viewId: String? = null,
+        className: String? = null,
+        y: Double = 0.1
     ) = GuidanceFrame.TextBlock(
         text = text,
-        bounds = NormalizedBounds(0.1, 0.1, 0.2, 0.05),
+        bounds = NormalizedBounds(0.1, y, 0.2, 0.05),
         isEditable = editable,
-        isPassword = password
+        isPassword = password,
+        className = className,
+        viewId = viewId
     )
 
     @Test
@@ -125,5 +134,136 @@ class SensitivePageDetectorTest {
             blocks = listOf(block("", editable = true, password = true))
         )
         assertTrue(SensitivePageDetector.evaluate(own, ownPackage = "com.actionloop.android").sensitive)
+    }
+
+    private fun searchFrame(vararg blocks: GuidanceFrame.TextBlock) =
+        frame(pkg = "com.vivo.globalsearch", blocks = blocks.toList())
+
+    /** 搜索聚合页：窗口层级已确认存在顶部搜索框（转场帧即使 root 不含搜索框也生效）。 */
+    private fun searchSurfaceFrame(vararg blocks: GuidanceFrame.TextBlock) =
+        frame(pkg = "com.vivo.globalsearch", blocks = blocks.toList(), hasSearchInput = true)
+
+    @Test
+    fun `转场帧 root 暂不含搜索框时仍按搜索页处理`() {
+        // 真机上搜索页转场时 rootInActiveWindow 可能暂时是结果 WebView，不含搜索框；
+        // 采集侧用窗口层级确认搜索框，避免单帧误暂停。
+        val result = SensitivePageDetector.evaluate(
+            searchSurfaceFrame(block("支付宝"), block("钱包与支付"))
+        )
+        assertFalse(result.sensitive)
+    }
+
+    @Test
+    fun `搜索窗口尚未可枚举时的转场帧不按关键词暂停`() {
+        // 真机实测：vivo 搜索窗口刚出现时 windows 层级里还只有 launcher/upslide 等系统层，
+        // 采集侧用短时宽限标记该帧，避免把结果页的“支付”当成敏感页。
+        val result = SensitivePageDetector.evaluate(
+            frame(
+                pkg = "com.vivo.globalsearch",
+                blocks = listOf(block("支付宝"), block("钱包与支付")),
+                searchSurfaceTransition = true
+            )
+        )
+        assertFalse("搜索转场宽限内不应暂停", result.sensitive)
+    }
+
+    @Test
+    fun `非搜索包的转场标志不能豁免关键词`() {
+        val result = SensitivePageDetector.evaluate(
+            frame(
+                pkg = "com.example.shop",
+                blocks = listOf(block("确认支付")),
+                searchSurfaceTransition = true
+            )
+        )
+        assertTrue("宽限只对搜索聚合包生效", result.sensitive)
+        assertEquals("命中敏感关键词: 支付", result.reason)
+    }
+
+    @Test
+    fun `搜索转场宽限下硬性判定仍然生效`() {
+        assertTrue(
+            SensitivePageDetector.evaluate(
+                frame(pkg = "com.vivo.globalsearch", blocks = listOf(block("支付宝")),
+                    secure = true, searchSurfaceTransition = true)
+            ).sensitive
+        )
+        assertTrue(
+            SensitivePageDetector.evaluate(
+                frame(pkg = "com.vivo.globalsearch", blocks = listOf(block("支付宝")),
+                    locked = true, searchSurfaceTransition = true)
+            ).sensitive
+        )
+    }
+
+    @Test
+    fun `全局搜索含搜索框时不按关键词暂停`() {
+        // 真机搜索“支付宝”会同时出现应用名与第三方摘要（电子支付/网上支付/转账收款/钱包与支付）。
+        val result = SensitivePageDetector.evaluate(
+            searchSurfaceFrame(
+                block("支付宝"),
+                block("支付宝，全球领先的独立第三方支付平台，提供电子支付/网上支付/安全支付体验，及转账收款等生活服务。"),
+                block("钱包与支付")
+            )
+        )
+        assertFalse("搜索框仍在页面上，属搜索聚合页，不应按交易页暂停", result.sensitive)
+    }
+
+    @Test
+    fun `离开搜索框后同包名内容页恢复关键词判定`() {
+        // 搜索框消失（进入搜索 App 内的具体服务/内容页）后不能继续豁免。
+        val result = SensitivePageDetector.evaluate(
+            searchFrame(block("支付宝，全球领先的独立第三方支付平台，提供电子支付/网上支付体验"))
+        )
+        assertTrue(result.sensitive)
+        assertEquals("命中敏感关键词: 支付", result.reason)
+    }
+
+    @Test
+    fun `搜索包内的普通输入框不能豁免支付关键词`() {
+        // 只认“顶部搜索框”；搜索 App 内的支付/转账页即便有金额/备注输入框也必须暂停。
+        val result = SensitivePageDetector.evaluate(
+            searchFrame(
+                block("", editable = true, viewId = "com.vivo.globalsearch:id/amount_input", y = 0.6),
+                block("确认支付")
+            )
+        )
+        assertTrue(result.sensitive)
+        assertEquals("命中敏感关键词: 支付", result.reason)
+    }
+
+    @Test
+    fun `页面中部的搜索样式输入框也不豁免`() {
+        val result = SensitivePageDetector.evaluate(
+            searchFrame(
+                block("", editable = true, viewId = "com.vivo.globalsearch:id/search_edit_text", y = 0.8),
+                block("确认支付")
+            )
+        )
+        assertTrue(result.sensitive)
+    }
+
+    @Test
+    fun `搜索页上的硬性判定仍然生效`() {
+        assertTrue(
+            SensitivePageDetector.evaluate(searchSurfaceFrame(block("支付宝")).copy(isSecure = true)).sensitive
+        )
+        assertTrue(
+            SensitivePageDetector.evaluate(searchSurfaceFrame(block("支付宝")).copy(isLocked = true)).sensitive
+        )
+        assertTrue(
+            SensitivePageDetector.evaluate(
+                searchFrame(block("", editable = true, password = true))
+            ).sensitive
+        )
+    }
+
+    @Test
+    fun `同样的支付摘要出现在普通内容页仍然敏感`() {
+        val content = frame(
+            pkg = "com.example.shop",
+            blocks = listOf(block("支付宝，全球领先的独立第三方支付平台，提供电子支付/网上支付体验"))
+        )
+        assertTrue(SensitivePageDetector.evaluate(content).sensitive)
     }
 }

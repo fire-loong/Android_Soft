@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,11 +25,22 @@ import kotlinx.coroutines.launch
  */
 class GuidanceAccessibilityService : AccessibilityService() {
 
+    /** 搜索聚合页转场宽限上限：覆盖搜索窗口从出现到可枚举的时间，避免转场帧误暂停。 */
+    private val SEARCH_TRANSITION_GRACE_MS = 1500L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var lastPushMs = 0L
     /** 页面指纹与帧标识：页面静止时复用同一 frameId，任何结构/边界变化才换帧。 */
     private var lastPageFingerprint: String? = null
     private var lastFrameId: String? = null
+
+    /** 搜索页窗口探测缓存：避免每个无障碍事件都遍历所有窗口层级。 */
+    private var searchProbePkg: String? = null
+    private var searchProbeAtMs = 0L
+    private var searchProbeValue = false
+
+    /** 搜索聚合页转场宽限起点：仅当窗口层级暂时看不到该包时启用，成功探测到搜索框即清除。 */
+    private val searchGraceStartMs = HashMap<String, Long>()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -82,6 +94,13 @@ class GuidanceAccessibilityService : AccessibilityService() {
         }
         lastPageFingerprint = fingerprint
         lastFrameId = frameId
+        // 只对系统搜索聚合包做窗口层级探测：转场帧的 root 可能暂时不含搜索框，
+        // 但窗口层级仍能证明这是搜索聚合页，避免“搜索支付宝”单帧误暂停。
+        val searchPkg = SensitivePageDetector.isSearchSurfacePackage(packageName)
+        val searchInput = searchPkg && hasSearchInputInWindows(packageName, nowMono)
+        if (searchInput) searchGraceStartMs.remove(packageName)
+        val searchTransition = searchPkg && !searchInput &&
+            isSearchSurfaceTransition(packageName, nowMono)
         val kg = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
         val frame = GuidanceFrame(
             frameId = frameId,
@@ -96,7 +115,10 @@ class GuidanceAccessibilityService : AccessibilityService() {
             textBlocks = normalized,
             isSecure = false, // FLAG_SECURE 由采集侧/窗口标志判定，无障碍无法可靠获取
             isLocked = runCatching { kg.isKeyguardLocked }.getOrDefault(false),
-            allowlistedPackage = ALLOWED_PACKAGES.contains(packageName)
+            allowlistedPackage = ALLOWED_PACKAGES.contains(packageName),
+            hasSearchInput = searchInput,
+            // 刚打开系统搜索时窗口层级可能尚未出现该包（真机实测），由短时宽限兜住转场帧。
+            searchSurfaceTransition = searchTransition
         )
         lastPushMs = nowMono
         scope.launch {
@@ -123,32 +145,108 @@ class GuidanceAccessibilityService : AccessibilityService() {
         val rect = Rect()
         node.getBoundsInScreen(rect)
         val nb = NormalizedBounds.fromPixel(rect, resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
-        if (nb != null) {
-            val raw = (node.text ?: node.contentDescription)?.toString()?.take(120) ?: ""
-            // 可编辑字段的内容一律不进入帧（避免把用户输入带出）；已遮蔽输入直接标记为密码。
-            val masked = node.isEditable && SensitivePageDetector.isMaskedInput(raw)
-            val isPwd = node.isPassword || masked
-            val text = if (node.isEditable || isPwd) "" else raw
-            if (text.isNotBlank() || isPwd) {
-                out.add(
-                    GuidanceFrame.TextBlock(
-                        text = text,
-                        bounds = nb,
-                        isEditable = node.isEditable,
-                        isPassword = isPwd,
-                        className = node.className?.toString()?.take(80),
-                        viewId = node.viewIdResourceName?.take(160),
-                        parentText = parentText
-                    )
+        val raw = (node.text ?: node.contentDescription)?.toString()?.take(120) ?: ""
+        val className = node.className?.toString()?.take(80)
+        val viewId = node.viewIdResourceName?.take(160)
+        // 部分 OEM 的搜索框（如 vivo 全局搜索）不把 isEditable 暴露为 true，但类名仍是
+        // EditText；两者都作为“输入框存在”的结构证据，供搜索聚合页语义判定使用。
+        val isEdit = node.isEditable || className?.contains("EditText", ignoreCase = true) == true
+        // 只保留“搜索框”或密码/遮蔽输入的结构证据：普通表单输入框不进入帧，
+        // 既避免用户输入经父文本带出，也不占用 64 条文本预算。
+        val isSearchInput = isEdit && (
+            viewId?.contains("search", ignoreCase = true) == true ||
+                className?.contains("search", ignoreCase = true) == true
+            )
+        // 可编辑字段的内容一律不进入帧；已遮蔽输入直接标记为密码。
+        // 搜索框排除在外：搜索词本身可能就是全掩码字符（如“***”），不能据此判为密码页。
+        val masked = !isSearchInput && isEdit && SensitivePageDetector.isMaskedInput(raw)
+        val isPwd = node.isPassword || masked
+        val text = if (isEdit || isPwd) "" else raw
+        if (nb != null && (text.isNotBlank() || isPwd || isSearchInput)) {
+            out.add(
+                GuidanceFrame.TextBlock(
+                    text = text,
+                    bounds = nb,
+                    isEditable = isPwd || isSearchInput,
+                    isPassword = isPwd,
+                    className = className,
+                    viewId = viewId,
+                    parentText = parentText
                 )
-            }
+            )
         }
-        val childParentText = if (node.isPassword || node.isEditable) null
+        // 所有可编辑/密码字段的子节点一律不继承父文本：OEM 自定义输入框可能 isEditable=false，
+        // 必须用上面归一化后的 isEdit/isPwd 判断，避免用户输入（甚至未打码密码）经 parentText 带出。
+        val childParentText = if (isPwd || isEdit) null
         else (node.text ?: node.contentDescription)?.toString()?.take(60)
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             collectNodes(child, out, limit, depth + 1, childParentText)
         }
+    }
+
+    /**
+     * 扫描所有应用窗口，判断指定包是否存在“顶部搜索框”。
+     * 只对系统搜索类包调用（调用方已过滤）；缓存 500ms，避免每个事件都遍历窗口层级。
+     */
+    private fun hasSearchInputInWindows(pkg: String, nowMono: Long): Boolean {
+        if (pkg == searchProbePkg && nowMono - searchProbeAtMs < 500) return searchProbeValue
+        val value = runCatching {
+            windows.any { w ->
+                // 真机实测：vivo 全局搜索窗口并不总是 TYPE_APPLICATION（dumpsys 中为独立系统层），
+                // 只认 TYPE_APPLICATION 会在打开搜索的转场帧漏判，进而把“支付”关键词误判为敏感页。
+                // 这里以“窗口根节点包名等于目标搜索包”为准，只读同包窗口；辅助层窗口（本应用）跳过。
+                if (w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@any false
+                val r = w.root ?: return@any false
+                if (r.packageName?.toString() != pkg) return@any false
+                containsSearchInput(r, 0, intArrayOf(200))
+            }
+        }.getOrDefault(false)
+        searchProbePkg = pkg
+        searchProbeAtMs = nowMono
+        searchProbeValue = value
+        return value
+    }
+
+    /**
+     * 搜索聚合页转场宽限（实测 vivo `com.vivo.globalsearch`）：搜索窗口刚出现时，
+     * `windows` 层级里还没有该包（只有 launcher/upslide 等系统层），此时既拿不到搜索框结构，
+     * 也不应把结果词（如“支付”）当作敏感页。只对搜索聚合包、且探测不到该包窗口时启用，
+     * 每包最多 [SEARCH_TRANSITION_GRACE_MS]；密码/FLAG_SECURE/锁屏等硬判定在此之前执行，不受影响。
+     */
+    private fun isSearchSurfaceTransition(pkg: String, nowMono: Long): Boolean {
+        val start = searchGraceStartMs.getOrPut(pkg) {
+            AssistSecurityAudit.record(this, "SEARCH_SURFACE_GRACE", pkg)
+            nowMono
+        }
+        return nowMono - start < SEARCH_TRANSITION_GRACE_MS
+    }
+
+    /** 深度/节点预算受限的只读搜索框探测：可编辑且类名/资源 id 含 search，位于页面上部。 */
+    private fun containsSearchInput(
+        node: AccessibilityNodeInfo,
+        depth: Int,
+        budget: IntArray
+    ): Boolean {
+        if (depth > 40 || budget[0] <= 0) return false
+        budget[0] -= 1
+        val className = node.className?.toString()
+        val isEdit = node.isEditable || className?.contains("EditText", ignoreCase = true) == true
+        val viewId = node.viewIdResourceName
+        if (isEdit &&
+            (viewId?.contains("search", ignoreCase = true) == true ||
+                className?.contains("search", ignoreCase = true) == true)
+        ) {
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+            val height = resources.displayMetrics.heightPixels
+            if (height > 0 && rect.top.toFloat() / height <= 0.25f) return true
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (containsSearchInput(child, depth + 1, budget)) return true
+        }
+        return false
     }
 
     /** 屏幕旋转（0/90/180/270），用于帧快照与显示变化判定。 */
@@ -187,7 +285,7 @@ class GuidanceAccessibilityService : AccessibilityService() {
 
         /** 受控允许列表：仅这些包允许进行目标匹配；其它包仍可敏感判定但不做高亮匹配。 */
         val ALLOWED_PACKAGES: Set<String> = setOf(
-            "com.actionloop.guidancetest" // 受控测试 App（Chunk 3 引入）
+            GUIDANCE_TEST_APP_PACKAGE // 受控测试 App（Chunk 3 引入）
         )
     }
 }

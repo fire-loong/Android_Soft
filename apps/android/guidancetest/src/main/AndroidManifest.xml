@@ -23,6 +23,10 @@
             android:name=".SecureActivity"
             android:exported="true"
             android:label="受控安全窗口" />
+        <activity
+            android:name=".GuidanceDemoActivity"
+            android:exported="true"
+            android:label="R16 目标匹配演示" />
     </application>
 
 </manifest>

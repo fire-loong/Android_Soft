@@ -19,6 +19,21 @@ object SensitivePageDetector {
         "身份证", "证件号", "银行卡", "卡号", "cvv", "安全码"
     )
 
+    /**
+     * 搜索类页面：桌面主屏之外的全局搜索是独立进程/包（如 vivo `com.vivo.globalsearch`），
+     * 它既展示“支付宝/手机银行”等应用名，也展示第三方检索摘要（“电子支付/网上支付/转账收款”）。
+     * 这类聚合页不是交易页，因此**仅在搜索框仍在页面上时**跳过关键词扫描；
+     * 搜索框消失（进入具体服务/内容页）后恢复完整关键词判定，不做整包豁免。
+     * 密码框 / FLAG_SECURE / 锁屏等硬性判定在搜索页上同样生效。
+     */
+    private val SEARCH_SURFACE_PACKAGES: Set<String> = setOf(
+        "com.vivo.globalsearch",
+        "com.google.android.googlequicksearchbox"
+    )
+
+    /** 供采集侧判断是否需要扫描窗口层级中的搜索框（避免对所有包做额外遍历）。 */
+    fun isSearchSurfacePackage(pkg: String): Boolean = SEARCH_SURFACE_PACKAGES.contains(pkg)
+
     data class Result(val sensitive: Boolean, val reason: String?)
 
     /**
@@ -29,7 +44,11 @@ object SensitivePageDetector {
      *   应用名称，不是支付/密码页面，参与关键词扫描会导致一回桌面就误暂停（真机实测）。
      *   锁屏、FLAG_SECURE、密码字段等硬性判定在 launcher 上同样生效。
      */
-    fun evaluate(frame: GuidanceFrame, ownPackage: String? = null, launcherPackages: Set<String> = emptySet()): Result {
+    fun evaluate(
+        frame: GuidanceFrame,
+        ownPackage: String? = null,
+        launcherPackages: Set<String> = emptySet()
+    ): Result {
         if (frame.isLocked) return Result(true, "锁屏状态")
         if (frame.isSecure) return Result(true, "FLAG_SECURE 安全窗口")
         if (frame.textBlocks.any { it.isPassword || it.isEditable && isMaskedInput(it.text) }) {
@@ -40,6 +59,18 @@ object SensitivePageDetector {
         }
         if (ownPackage != null && frame.packageName == ownPackage) return Result(false, null)
         if (launcherPackages.contains(frame.packageName)) return Result(false, null)
+        // 两个条件必须同时成立：包名属于搜索聚合包，且存在顶部搜索框结构证据。
+        // frame.hasSearchInput 由采集侧扫描窗口层级得到，覆盖“转场帧 root 暂时不含搜索框”的情况；
+        // 但它只在采集侧对搜索聚合包才置真，这里再合取一次包名，防止其他来源的帧误带该标志。
+        val searchSurface = SEARCH_SURFACE_PACKAGES.contains(frame.packageName) && (
+            frame.hasSearchInput || frame.searchSurfaceTransition || frame.textBlocks.any {
+                it.isEditable && !it.isPassword &&
+                    it.bounds.y <= 0.25 &&
+                    (it.viewId?.contains("search", ignoreCase = true) == true ||
+                        it.className?.contains("search", ignoreCase = true) == true)
+            }
+            )
+        if (searchSurface) return Result(false, null)
         for (block in frame.textBlocks) {
             val hit = SENSITIVE_KEYWORDS.firstOrNull { kw ->
                 block.text.contains(kw, ignoreCase = true)

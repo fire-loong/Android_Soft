@@ -31,26 +31,26 @@
 | D-03 | 完成核验 | 完成/复核状态机与历史保留 | `TaskFlowIntegrationTest`、`ReviewEvidenceIntegrationTest` | 已验证（自动化） |
 | D-04 | 并发冲突 | 版本号/乐观锁 | `TaskStateMachineTest`、`tests/joint/cross-client-consistency.mjs`（旧 baseVersion 返回 409） | 部分（双端同时改派/改期未压测） |
 | D-05 | 离线幂等 | `IdempotencyFilter` / `sync_operation` | `IdempotencyIntegrationTest`、`tests/joint/cross-client-consistency.mjs`（同 key 重放不重复建） | 部分（进程被杀/断网恢复未注入） |
-| E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（**本地目标高亮无 App 内入口**：`GuidanceSessionManager.setTarget` 无调用方，真机无法执行高亮/重匹配；2026-11-26 实测） |
+| E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App + 权限页「本地目标高亮」入口 | `TargetMatcherTest`、`GuidanceTestAppContractTest`、`GuidanceSessionManagerTest`；真机 2026-11-28：设置目标→绿色高亮（`LOCAL_MATCH score=1.00`）→ 测试者点击 → 新帧重匹配（`score=1.00`，旧标注 `HIGHLIGHT_EXPIRED`）→ 低置信目标仅文字无高亮 | 已验证（单机真机 + JVM）；边界：仅受控测试 App（设计如此），真实第三方 App 不自动操作 |
 | E-02 | 低置信 | 低置信转文字/人工 | `GuidanceSessionManagerTest`、`apps/web/tests/e2e` 低置信日期门 | 部分 |
-| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一；`MainActivity.onConfigurationChanged` + `GuidanceOverlay.restoreWindowOrder` | `NormalizedBoundsTest`、`GuidanceOverlayTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26）；2026-11-28 单机 vivo 修复后两轮真实分屏均确认控制条可见，第二轮窗口 ID `c80bc4f/1dddc44` → `492c40b/7a53bb8` | 部分（单机 vivo 分屏回归通过；原问题间歇性，软键盘变化与其他厂商未验证） |
-| E-04 | 敏感页面 | `SensitivePageDetector` + `SecureFrameDetector` 按行黑帧探测 | `SensitivePageDetectorTest`、`SecureFrameDetectorTest`；真机：密码弹窗/锁屏停止（2026-11-26）；2026-11-28 支付页写 `SENSITIVE_PAGE` 并暂停，无敏感词的独立 FLAG_SECURE 页写 `CAPTURE_SECURE` 并暂停；launcher 主屏误暂停已修 | 部分（`com.vivo.globalsearch` 搜索「支付宝」仍误暂停；多厂商与更多真实支付 App 未覆盖） |
+| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一；`MainActivity.onConfigurationChanged` + `GuidanceOverlay.restoreWindowOrder` | `NormalizedBoundsTest`、`GuidanceOverlayTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26）；2026-11-28 单机 vivo 修复后两轮真实分屏均确认控制条可见，第二轮窗口 ID `c80bc4f/1dddc44` → `492c40b/7a53bb8`；同日 `wm size 1080x2340` 触发 `DISPLAY_CHANGED` 并暂停、复位后恢复原布局 | 部分（单机 vivo 分屏与分辨率变化通过；原问题间歇性，分屏内软键盘与其他厂商未验证） |
+| E-04 | 敏感页面 | `SensitivePageDetector` + `SecureFrameDetector` 按行黑帧探测 + 搜索聚合页窗口级搜索框探测 | `SensitivePageDetectorTest`、`SecureFrameDetectorTest`；真机：密码弹窗/锁屏停止（2026-11-26）；2026-11-28 支付页写 `SENSITIVE_PAGE` 并暂停，独立 FLAG_SECURE 页写 `CAPTURE_SECURE` 并暂停（1.2s 持续黑场 + 2s 预热）；`com.vivo.globalsearch` 搜索「支付宝」不再误暂停（含搜索窗口刚出现的转场帧：1.5s 有界宽限 + 窗口层级/顶部搜索框双证据）且硬判定仍生效；launcher 主屏误暂停已修；普通应用切换 14s 无新增 `CAPTURE_SECURE` | 部分（单机 vivo 已覆盖搜索/支付/独立安全页；多厂商与更多真实支付 App 未覆盖） |
 | E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest`；真机：悬浮条停止、锁屏停止、撤无障碍暂停（2026-11-26）、通知栏「停止引导」动作（2026-11-28）；2026-11-28 单机 vivo 第二轮分屏内悬浮停止成功，审计 `user_overlay_stop` → `notification_stop`，采集服务与两个 overlay 消失 | 部分（单机 vivo 分屏内停止已通过；超时、其他厂商与更多窗口时序未验证） |
 | E-06 | 伪造控制 | 拒绝 CLICK/SWIPE/INPUT/COMMIT_PAYMENT | `AssistMessageGuardTest`、`AssistSignalCoreTest`、`AssistScopesContractTest` | 已验证（自动化） |
-| E-07 | 弱网 | WebRTC 自适应、标注过期 | 无 | 未验证（需弱网注入） |
+| E-07 | 弱网 | WebRTC 自适应、标注过期 | 无 | 未验证（BLOCKED：需弱网注入；本机无 netem/root 与可控链路，按 17.5 属 RC 前置阻断） |
 | E-08 | 媒体不留存 | `AssistMediaPolicy`（帧不落盘） | `AssistMediaPolicyTest` | 部分（会话后存储/相册检查未执行） |
 | X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest`、`CandidateExtractionServiceTest`；真机：真实 MaaS 两次 schema 失败曾致作业死信、通知被吞（2026-11-28 实测，已修：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK`） | 部分（配额/超时故障未注入） |
-| X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
+| X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（BLOCKED：无 Coturn 服务与双端网络；按 17.5 属 RC 前置阻断） |
 | X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2946 行 / 非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
 | X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测；真机 200% 布局已测（2026-11-26）；2026-11-28 TalkBack 与只读服务同时 Bound，权限页控件有文本/状态语义并观察到返回键焦点框 | 部分（TalkBack 语音朗读、全页线性焦点与双击激活未完整验证；键盘未验证） |
-| X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证 |
+| X-05 | 桌面安装 | Tauri 安装器、中文路径、WebView2 | 无 | 未验证（BLOCKED：无干净 Windows 机器与安装介质，无法验证干净机安装） |
 
 ## 汇总（共 35 条）
 
-- 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06。
-- 部分：23 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练；A-02/A-03/A-05/A-06/E-01/E-03/E-04/E-05/X-04 已补 vivo 真机证据，其中 E-03/E-05 于 2026-11-28 补充分屏修复回归。
-- 未验证：3 条 —— E-07、X-02、X-05。
-- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练；E-01 本地目标高亮需先补 App 内入口（`setTarget` 未接线）。
+- 已验证（自动化）：9 条 —— A-01、A-04、B-01、B-04、B-05、C-04、D-02、D-03、E-06；另 E-01 于 2026-11-28 补 App 内入口后，以「单机真机 + JVM」达到已验证（记入下方说明，不计入这 9 条纯自动化项）。
+- 部分：22 条 —— 单端或规则层已覆盖，注入/真机/三端联合未验证；X-03 已有同实例恢复演练；A-02/A-03/A-05/A-06/E-03/E-04/E-05/X-04 已补 vivo 真机证据，其中 E-03/E-05 于 2026-11-28 补充分屏修复回归，E-03/E-04 同日补分辨率变化与搜索页语义回归。
+- 未验证：3 条 —— E-07、X-02、X-05（均为环境 BLOCKED，见上表）。
+- 阻断发布的未验证项：E-07 弱网、X-02 TURN 故障（按 17.5 属 RC 前置条件）；X-03 需再补干净机器/异地介质演练；X-05 需干净 Windows 机器；E-01 入口已补齐并在单机跑通，剩多厂商真机覆盖。
 
 ## 附录：不在 17.3 编号内、但属 26.2 验收的两项
 

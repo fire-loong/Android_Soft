@@ -1,5 +1,8 @@
 package com.actionloop.android.assist
 
+/** 受控测试 App 包名：与只读无障碍白名单共用，避免两处硬编码漂移。 */
+const val GUIDANCE_TEST_APP_PACKAGE = "com.actionloop.guidancetest"
+
 /**
  * 引导目标（指导书 8.4 / 8.8）。
  *
