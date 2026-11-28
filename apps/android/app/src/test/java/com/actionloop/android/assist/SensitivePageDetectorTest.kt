@@ -89,6 +89,26 @@ class SensitivePageDetectorTest {
     }
 
     @Test
+    fun `桌面应用名不触发支付关键词误判`() {
+        val launcher = "com.bbk.launcher2"
+        val desktop = frame(pkg = launcher, blocks = listOf(block("支付宝"), block("手机银行")))
+        assertFalse("桌面只显示应用名，不应按敏感页处理",
+            SensitivePageDetector.evaluate(desktop, launcherPackages = setOf(launcher)).sensitive)
+        // 同样的文字出现在第三方页面仍然必须判为敏感。
+        assertTrue(SensitivePageDetector.evaluate(
+            frame(pkg = "com.example.shop", blocks = listOf(block("立即支付"))),
+            launcherPackages = setOf(launcher)
+        ).sensitive)
+        // 硬性判定在桌面上同样生效。
+        assertTrue(SensitivePageDetector.evaluate(
+            frame(pkg = launcher, secure = true), launcherPackages = setOf(launcher)
+        ).sensitive)
+        assertTrue(SensitivePageDetector.evaluate(
+            frame(pkg = launcher, locked = true), launcherPackages = setOf(launcher)
+        ).sensitive)
+    }
+
+    @Test
     fun `本应用自身的说明文案不因安全关键词误判为敏感`() {
         val text = "检测到密码 / 支付 / 锁屏会立即清除高亮并停止"
         val own = frame(pkg = "com.actionloop.android", blocks = listOf(block(text)))

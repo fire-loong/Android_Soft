@@ -25,8 +25,11 @@ object SensitivePageDetector {
      * @param ownPackage 本应用包名。本应用界面由我们控制，安全说明里的“密码 / 支付 / 锁屏”
      *   只是提示文案，不是用户敏感数据；若参与关键词扫描，会让协助/引导页面被自身文案
      *   永久判为敏感页并暂停画面。密码输入框、FLAG_SECURE、锁屏等硬性判定仍然生效。
+     * @param launcherPackages 桌面/ launcher 包名集合。桌面上出现的“支付宝”“手机银行”只是
+     *   应用名称，不是支付/密码页面，参与关键词扫描会导致一回桌面就误暂停（真机实测）。
+     *   锁屏、FLAG_SECURE、密码字段等硬性判定在 launcher 上同样生效。
      */
-    fun evaluate(frame: GuidanceFrame, ownPackage: String? = null): Result {
+    fun evaluate(frame: GuidanceFrame, ownPackage: String? = null, launcherPackages: Set<String> = emptySet()): Result {
         if (frame.isLocked) return Result(true, "锁屏状态")
         if (frame.isSecure) return Result(true, "FLAG_SECURE 安全窗口")
         if (frame.textBlocks.any { it.isPassword || it.isEditable && isMaskedInput(it.text) }) {
@@ -36,6 +39,7 @@ object SensitivePageDetector {
             return Result(true, "敏感系统界面: ${frame.packageName}")
         }
         if (ownPackage != null && frame.packageName == ownPackage) return Result(false, null)
+        if (launcherPackages.contains(frame.packageName)) return Result(false, null)
         for (block in frame.textBlocks) {
             val hit = SENSITIVE_KEYWORDS.firstOrNull { kw ->
                 block.text.contains(kw, ignoreCase = true)

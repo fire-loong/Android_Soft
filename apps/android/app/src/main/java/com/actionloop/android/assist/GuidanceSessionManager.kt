@@ -38,6 +38,17 @@ class GuidanceSessionManager(private val context: Context) {
      */
     @Volatile private var captureSecureUntilMs = 0L
 
+    /** 桌面包名：桌面上的“支付宝/手机银行”只是应用名，不能按敏感关键词处理（真机误暂停）。 */
+    private val launcherPackages: Set<String> by lazy {
+        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_HOME)
+        runCatching {
+            context.packageManager.queryIntentActivities(intent, 0)
+                .mapNotNull { it.activityInfo?.packageName }
+                .toSet()
+        }.getOrDefault(emptySet())
+    }
+
     data class ActiveHighlight(
         /** 远程/本机标注必须绑定到产生它的 frameId（指导书 8.7）。 */
         val bounds: NormalizedBounds,
@@ -72,7 +83,7 @@ class GuidanceSessionManager(private val context: Context) {
     )
 
     suspend fun snapshot(): Snapshot = mutex.withLock {
-        val frameSens = currentFrame?.let { SensitivePageDetector.evaluate(it, context.packageName) }
+        val frameSens = currentFrame?.let { SensitivePageDetector.evaluate(it, context.packageName, launcherPackages) }
         val captureSens = captureSecureUntilMs > monoNow()
         val sensitive = frameSens?.sensitive == true || captureSens
         val reason = when {
@@ -227,7 +238,7 @@ class GuidanceSessionManager(private val context: Context) {
                 AssistSecurityAudit.record(context, "TEXT_HINT_STALE", "bound=${active.frameId} current=${frame.frameId}")
             }
         }
-        val frameSens = SensitivePageDetector.evaluate(frame, context.packageName)
+        val frameSens = SensitivePageDetector.evaluate(frame, context.packageName, launcherPackages)
         val captureSens = captureSecureUntilMs > monoNow()
         val sensitive = frameSens.sensitive || captureSens
         if (sensitive) {
@@ -328,7 +339,7 @@ class GuidanceSessionManager(private val context: Context) {
     private fun applyHighlight(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
         // 纵深防御：当前帧敏感（文本/采集侧 FLAG_SECURE）时拒绝任何高亮，即使远程标注先于敏感帧到达也不得落在敏感页（8.5）。
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
+        if (currentFrameHasSensitiveContent()) return false
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val bounds = parseBounds(payload["bounds"]) ?: return false
@@ -358,7 +369,7 @@ class GuidanceSessionManager(private val context: Context) {
     /** 指针标注与高亮同权：必须绑定当前帧，且不允许长期驻留（8.7）。 */
     private fun applyPointer(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
+        if (currentFrameHasSensitiveContent()) return false
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val bounds = parseBounds(payload["bounds"]) ?: return false
@@ -381,7 +392,7 @@ class GuidanceSessionManager(private val context: Context) {
      */
     private fun applyTextHint(payload: Map<String, Any?>): Boolean {
         if (!acceptsAnnotation()) return false
-        currentFrame?.let { if (SensitivePageDetector.evaluate(it, context.packageName).sensitive) return false }
+        if (currentFrameHasSensitiveContent()) return false
         if (captureSecureUntilMs > monoNow()) return false
         val frameId = currentFrameIdForAnnotation(payload) ?: return false
         val text = payload["text"]?.toString()?.trim().orEmpty()
@@ -392,6 +403,11 @@ class GuidanceSessionManager(private val context: Context) {
         textHint = ActiveTextHint(text.take(500), frameId, monoNow() + ttl)
         return true
     }
+
+    /** 远程高亮、指针与文字共用同一敏感页判定，避免入口间策略漂移。 */
+    private fun currentFrameHasSensitiveContent(): Boolean = currentFrame?.let {
+        SensitivePageDetector.evaluate(it, context.packageName, launcherPackages).sensitive
+    } == true
 
     /** 标注只允许落在活跃状态；暂停/待同意/终态一律拒绝（IDLE/STOPPED/COMPLETED）。 */
     private fun acceptsAnnotation(): Boolean =

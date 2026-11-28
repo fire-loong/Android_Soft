@@ -32,6 +32,51 @@ import kotlinx.coroutines.launch
 import com.actionloop.android.R
 
 /**
+ * FLAG_SECURE 黑帧判定：按水平采样行统计，而不是对全屏亮像素取总比例。
+ * 系统栏、控制条、弹窗与 IME 可能覆盖大块区域；只要仍有至少 20% 的采样行
+ * 基本全黑，就按安全帧处理。完全被亮色窗口覆盖时没有应用像素可判，待遮挡消失后探测。
+ */
+internal object SecureFrameDetector {
+    private const val SAMPLE_ROWS = 40
+    private const val SAMPLE_COLUMNS = 30
+    private const val DARK_CHANNEL_MAX = 12
+    private const val MAX_BRIGHT_RATIO_PER_DARK_ROW = 0.01
+    private const val MIN_DARK_ROW_RATIO = 0.20
+
+    fun isMostlyBlack(
+        buffer: java.nio.ByteBuffer,
+        rowStride: Int,
+        pixelStride: Int,
+        width: Int,
+        height: Int
+    ): Boolean {
+        if (width <= 0 || height <= 0 || pixelStride <= 0 || rowStride <= 0) return false
+        var darkRows = 0
+        var checkedRows = 0
+        repeat(SAMPLE_ROWS) { row ->
+            val y = row * height / SAMPLE_ROWS
+            var bright = 0
+            var checked = 0
+            repeat(SAMPLE_COLUMNS) { column ->
+                val x = column * width / SAMPLE_COLUMNS
+                val offset = y * rowStride + x * pixelStride
+                if (offset < 0 || offset + 3 >= buffer.limit()) return false
+                val r = buffer.get(offset).toInt() and 0xFF
+                val g = buffer.get(offset + 1).toInt() and 0xFF
+                val b = buffer.get(offset + 2).toInt() and 0xFF
+                checked++
+                if (r > DARK_CHANNEL_MAX || g > DARK_CHANNEL_MAX || b > DARK_CHANNEL_MAX) bright++
+            }
+            if (checked > 0) {
+                checkedRows++
+                if (bright.toDouble() / checked < MAX_BRIGHT_RATIO_PER_DARK_ROW) darkRows++
+            }
+        }
+        return checkedRows > 0 && darkRows.toDouble() / checkedRows >= MIN_DARK_ROW_RATIO
+    }
+}
+
+/**
  * 屏幕采集前台服务（指导书 8.3 / 8.10 / 安全边界）。
  *
  * - 仅在用户当次授予 MediaProjection 后启动，不缓存授权；
@@ -251,29 +296,9 @@ class ScreenCaptureService : Service() {
      */
     private fun isMostlyBlack(image: android.media.Image): Boolean {
         val plane = image.planes.firstOrNull() ?: return false
-        val buffer = plane.buffer
-        val rowStride = plane.rowStride
-        val pixelStride = plane.pixelStride
-        val width = image.width
-        val height = image.height
-        if (width <= 0 || height <= 0 || pixelStride <= 0) return false
-        val samples = 1200
-        var nonZero = 0
-        var checked = 0
-        val rnd = java.util.Random(0)
-        repeat(samples) {
-            val x = rnd.nextInt(width)
-            val y = rnd.nextInt(height)
-            val offset = y * rowStride + x * pixelStride
-            if (offset + 3 < buffer.limit()) {
-                val rr = buffer.get(offset).toInt() and 0xFF
-                val g = buffer.get(offset + 1).toInt() and 0xFF
-                val b = buffer.get(offset + 2).toInt() and 0xFF
-                checked++
-                if (rr > 12 || g > 12 || b > 12) nonZero++
-            }
-        }
-        return checked > 0 && nonZero.toDouble() / checked < 0.01
+        return SecureFrameDetector.isMostlyBlack(
+            plane.buffer, plane.rowStride, plane.pixelStride, image.width, image.height
+        )
     }
 
     /**

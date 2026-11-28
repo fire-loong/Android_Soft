@@ -23,7 +23,7 @@ pnpm test:ops:fault           # 故障注入：杀 API 进程 → 重启 → 校
 pnpm test:perf                # k6 冒烟（需 API 以 RL_*_MAX=0 启动）
 pnpm test:e2e                 # Playwright 全栈（需 PG + JWT_SECRET + 8080 API）
 cd services && ./mvnw -pl api -am test   # 后端 156 项集成/单测（MaaS 凭证缺失时 1 项跳过）
-cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（必须 ASCII 路径）
+cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 102 项（必须 ASCII 路径）
 ```
 
 ## 1. 20 条场景清单
@@ -127,7 +127,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 无效 AI 输出（R20） | 同内容通知重发 | **修复前 FAIL**：MaaS 连续两次 schema 校验失败 → 作业 `DEAD_LETTER / AI_OUTPUT_INVALID`，App 待确认页为空，用户无任何提示（通知被吞）。**修复后**：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK` 警告（JVM 单测 8 项覆盖；真实模型未再复现无效输出，待后续观察） |
 | 重启后提醒重建（A-06） | 重启设备 | **首测 FAIL**：`pidof` 无 App 进程、0 条 `REMINDER_*` 闹钟，`BOOT_COMPLETED` 被 vivo 自启动限制拦截（adb shell 不能代发开机广播）。**开启「自启动」后复测 PASS**：重启后 App 进程由开机广播拉起（pid 8804），`dumpsys alarm` 重新出现两条 `REMINDER_*`（`when`=11:00/13:00，仍为不精确窗口），打开 App 仍登录、今天页事项与状态完整。**结论：重建逻辑正确，但依赖 OEM 自启动权限，需在权限页/文档中提示用户开启** |
 
-### 3.3 分屏与桌面敏感词（2026-11-28，同一台 vivo）
+### 3.3 分屏、桌面与敏感页（2026-11-28，同一台 vivo）
 
 | 步骤 | 操作 | 结果 |
 | --- | --- | --- |
@@ -135,6 +135,9 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | 悬浮条可见性（E-05） | 分屏后观察 | **FAIL（P1 可用性）**：悬浮控制条窗口仍存在（`type=2038`，frame 在上半屏），但界面上不可见，用户无法点「停止」 |
 | 替代停止路径（E-05） | 通知栏展开「ActionLoop 引导进行中」→「停止引导」 | 通过：`ScreenCaptureService` 退出、共享标识消失。注：直接点通知正文（“点此停止”）不会停止，必须展开后点「停止引导」动作 |
 | 外部停止尝试 | `am startservice -a …STOP_CAPTURE` | 通过（符合设计）：服务未导出，外部 uid 被拒绝，无法绕过 App 内授权路径 |
-| 桌面敏感词（E-04 边界） | 回到桌面（含“支付宝”图标） | 观察项：审计 `SENSITIVE_PAGE|com.bbk.launcher2: 命中敏感关键词: 支付`，会话被暂停。偏保守（桌面含支付类 App 名就停），安全方向正确但可能误伤，需评估是否排除 launcher |
+| 桌面敏感词（E-04 边界） | 回到 `com.bbk.launcher2` 主屏并逐页观察 | **修复后通过**：launcher 包名跳过支付等文案关键词，主屏不再误暂停，审计无新增 launcher `SENSITIVE_PAGE`；锁屏/FLAG_SECURE/密码字段硬判定仍生效；远程高亮/指针/文字共用同一判定并有 JVM 回归测试。新发现：桌面全局搜索是独立包 `com.vivo.globalsearch`，搜索「支付宝」仍命中关键词并暂停，尚未按 launcher 一并豁免，避免把非桌面内容笼统放行 |
+| 支付安全页（E-04） | 打开受控 `PaymentActivity`（真实 FLAG_SECURE + 支付文案，无交易）→ 恢复引导 | 通过：页面内容被系统涂黑，仅悬浮条可见；写 `SENSITIVE_PAGE|com.actionloop.guidancetest: 命中敏感关键词: 支付` 并暂停，无高亮残留 |
+| 独立 FLAG_SECURE（E-04） | 打开不含敏感词/输入框的 `SecureActivity` → 恢复引导 | **修复前 FAIL**：系统栏与悬浮条亮像素使全屏黑帧比例达不到 1%，会话仍运行。**最终修复后通过**：改为 40 个水平采样行统计，至少 20% 基本全黑行即命中，避免系统栏/悬浮条/中央弹窗/IME 的亮区稀释；写 `CAPTURE_SECURE|FLAG_SECURE frame`，悬浮条立即变为「已暂停」（最终审计时间戳 `1795839624346`）。`SecureFrameDetectorTest` 覆盖 80% 区域被遮挡、亮页、零星黑行与截断缓冲 |
+| 离开安全页恢复（E-04） | 返回普通 launcher 主屏 → 手动「恢复」 | 通过：会话回到「仅文字」运行；不会因上一轮安全窗口永久锁死 |
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。

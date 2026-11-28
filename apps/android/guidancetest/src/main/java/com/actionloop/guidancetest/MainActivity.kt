@@ -52,6 +52,28 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btn_webview).setOnClickListener { loadWebView() }
         findViewById<Button>(R.id.btn_rotate).setOnClickListener { toggleOrientation() }
 
+        // 支付 / FLAG_SECURE 受控页：验证敏感页撤权即停（指导书 8.3 / 8.5）。
+        actionContainer.addView(Button(this).apply {
+            text = "支付确认（FLAG_SECURE）"
+            contentDescription = "打开受控支付页"
+            setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity, PaymentActivity::class.java))
+            }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        actionContainer.addView(Button(this).apply {
+            text = "独立安全窗口（黑帧）"
+            contentDescription = "打开中性安全窗口"
+            setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity, SecureActivity::class.java))
+            }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
         buildList()
         updateStatus("就绪")
     }

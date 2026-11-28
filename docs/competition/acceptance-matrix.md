@@ -34,7 +34,7 @@
 | E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（**本地目标高亮无 App 内入口**：`GuidanceSessionManager.setTarget` 无调用方，真机无法执行高亮/重匹配；2026-11-26 实测） |
 | E-02 | 低置信 | 低置信转文字/人工 | `GuidanceSessionManagerTest`、`apps/web/tests/e2e` 低置信日期门 | 部分 |
 | E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26）；分屏可正常进入、不触发 `DISPLAY_CHANGED`（2026-11-28） | 部分（分屏下悬浮控制条不可见，需走通知栏停止；软键盘变化未验证） |
-| E-04 | 敏感页面 | `SensitivePageDetector`（密码/FLAG_SECURE/支付/验证码） | `SensitivePageDetectorTest`；真机：密码弹窗即时暂停并写 `SENSITIVE_PAGE`、锁屏停止（2026-11-26）；桌面命中“支付”关键词也暂停（2026-11-28，疑似误伤 launcher） | 部分（支付页与独立 FLAG_SECURE 测试页未验证） |
+| E-04 | 敏感页面 | `SensitivePageDetector` + `SecureFrameDetector` 按行黑帧探测 | `SensitivePageDetectorTest`、`SecureFrameDetectorTest`；真机：密码弹窗/锁屏停止（2026-11-26）；2026-11-28 支付页写 `SENSITIVE_PAGE` 并暂停，无敏感词的独立 FLAG_SECURE 页写 `CAPTURE_SECURE` 并暂停；launcher 主屏误暂停已修 | 部分（`com.vivo.globalsearch` 搜索「支付宝」仍误暂停；多厂商与更多真实支付 App 未覆盖） |
 | E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest`；真机：悬浮条停止、锁屏停止、撤无障碍暂停（2026-11-26）、通知栏「停止引导」动作（2026-11-28 分屏下验证） | 部分（分屏下悬浮条不可见；超时未验证） |
 | E-06 | 伪造控制 | 拒绝 CLICK/SWIPE/INPUT/COMMIT_PAYMENT | `AssistMessageGuardTest`、`AssistSignalCoreTest`、`AssistScopesContractTest` | 已验证（自动化） |
 | E-07 | 弱网 | WebRTC 自适应、标注过期 | 无 | 未验证（需弱网注入） |
@@ -63,7 +63,7 @@
 
 ## 待用户/环境提供
 
-- 真机与厂商覆盖（A-06/E-03 分屏/E-04 支付页/X-04）：已有 1 台 vivo V2352A（Android 16）实测记录，仍需 ≥2 台不同厂商设备。
+- 真机与厂商覆盖（A-06/E-03 分屏/E-04/X-04）：已有 1 台 vivo V2352A（Android 16）实测记录，支付页与独立 FLAG_SECURE 已覆盖，仍需 ≥2 台不同厂商设备。
 - 真实 MaaS 凭证与配额（X-01、B-02）：用于 AI/OCR 真实链路验证。
 - Coturn 服务器与双端网络（E-07、X-02）。
 - 备份介质与恢复窗口（X-03）。

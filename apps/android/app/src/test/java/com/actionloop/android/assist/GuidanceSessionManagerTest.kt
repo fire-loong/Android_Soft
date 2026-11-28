@@ -101,6 +101,39 @@ class GuidanceSessionManagerTest {
     }
 
     @Test
+    fun `桌面应用名不阻断三类远程标注`() = runBlocking {
+        val launcher = "com.bbk.launcher2"
+        val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_HOME)
+        val resolveInfo = android.content.pm.ResolveInfo().apply {
+            activityInfo = android.content.pm.ActivityInfo().apply {
+                packageName = launcher
+                name = "Launcher"
+            }
+        }
+        org.robolectric.Shadows.shadowOf(context.packageManager)
+            .addResolveInfoForIntent(homeIntent, resolveInfo)
+        manager.start()
+        manager.consentGranted()
+        manager.onFrame(normalFrame.copy(
+            packageName = launcher,
+            textBlocks = listOf(GuidanceFrame.TextBlock(
+                "支付宝", NormalizedBounds(0.1, 0.1, 0.2, 0.05)
+            ))
+        ))
+        assertFalse(manager.snapshot().pageSensitive)
+        assertTrue(manager.applyIncomingEvent("s-1", "HIGHLIGHT", highlightPayload()))
+        assertTrue(manager.applyIncomingEvent("s-1", "POINTER", pointerPayload()))
+        assertTrue(manager.applyIncomingEvent("s-1", "TEXT_HINT", mapOf(
+            "text" to "请长按应用图标", "frameId" to "frame-1"
+        )))
+        val snap = manager.snapshot()
+        assertNotNull(snap.highlight)
+        assertNotNull(snap.pointer)
+        assertEquals("请长按应用图标", snap.textHint)
+    }
+
+    @Test
     fun `控制类信令被拒绝并且写入安全审计`() = runBlocking {
         manager.start(); manager.consentGranted()
         for (event in listOf("CLICK", "SWIPE", "INPUT", "COMMIT_PAYMENT", null)) {
