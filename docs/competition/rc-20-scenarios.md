@@ -170,7 +170,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 103 项（�
 | R16 点击后重匹配（E-01） | 测试者本人点击高亮的「下一步」 | 通过：页面文案变「步骤：1 · 点击「下一步」」，新帧 `LOCAL_MATCH frame=6fbdf52a-… score=1.00` 重新高亮；再次切回演示页又生成 `75a35cdb-… score=1.00`，说明按 frameId 重新匹配、旧标注失效路径生效 |
 | R16 低置信降文字（E-01） | 回 App 设置「低置信：确认提交」（`1795854326673`）→ 再切演示页 | 通过：仅悬浮条「引导：仅文字…」，页面无任何描边，审计无新的 `LOCAL_MATCH`（未达阈值不猜目标） |
 | R16 停止 | 悬浮层「停止」 | 通过：审计 `1795854354951\|STOP\|reason=user_overlay_stop` + `notification_stop`，`ScreenCaptureService` 记录消失 |
-| 搜索误暂停（E-04） | 会话进行中 → 桌面下拉打开 `com.vivo.globalsearch` → 输入 `zhifubao` 回车 | 通过：搜索首页与结果页（含“支付宝”“支付宝付款码”等）悬浮条保持「引导：仅文字…」，审计无 `SENSITIVE_PAGE`。**复测中发现并修复**：搜索窗口刚出现时 `windows` 层级里尚无该包（实测只有 launcher/upslide 等系统层），转场单帧仍会把“支付”误判为敏感页；现改为「搜索聚合包 + 探测不到该包窗口 → 最多 1.5s 转场宽限（`SEARCH_SURFACE_GRACE` 审计）」，窗口可枚举后仍要求顶部搜索框结构证据；密码框 / FLAG_SECURE / 支付页硬判定不受影响（JVM 3 例覆盖：转场豁免、非搜索包不豁免、宽限下硬判定生效） |
+| 搜索误暂停（E-04） | 会话进行中 → 桌面下拉打开 `com.vivo.globalsearch` → 输入 `zhifubao` 回车 | 通过：搜索首页与结果页（含“支付宝”“支付宝付款码”等）悬浮条保持「引导：仅文字…」，审计无 `SENSITIVE_PAGE`。**复测中发现并修复**：搜索窗口刚出现时 `windows` 层级里尚无该包（实测只有 launcher/upslide 等系统层），转场单帧仍会把“支付”误判为敏感页；现改为「搜索聚合包 + 探测不到该包窗口 → 最多 1.5s 转场宽限（`SEARCH_SURFACE_GRACE` 审计）」，窗口可枚举后仍要求顶部搜索框结构证据；密码框 / FLAG_SECURE / 支付页硬判定不受影响（JVM 3 例覆盖：转场豁免、非搜索包不豁免、宽限下硬判定生效）。已知边界：搜索包内若存在“带顶部搜索框的具体内容页”，关键词同样不会触发暂停（该包内无真实支付表单；密码/FLAG_SECURE/锁屏硬判定仍生效），需在后续按页面语义再细分 |
 | 软键盘（E-03 边界） | 全局搜索页 IME 弹出时观察 | 单机通过（非分屏）：悬浮条仍可见，未被 IME 遮挡或误暂停 |
 | 支付页硬判定（E-04） | 打开受控 `PaymentActivity`（真实 FLAG_SECURE + 支付文案） | 通过：审计 `1795853970367\|SENSITIVE_PAGE\|com.actionloop.guidancetest: 命中敏感关键词: 支付`，悬浮条「引导：已暂停…」 |
 | 独立 FLAG_SECURE（E-04） | 打开不含敏感词/输入框的 `SecureActivity` 并「恢复」 | 通过：约 4s 内写 `1795854012406\|CAPTURE_SECURE\|FLAG_SECURE frame` 并暂停（1.2s 持续黑场闩锁 + 2s 启动预热宽限） |
