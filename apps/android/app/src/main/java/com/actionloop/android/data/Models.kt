@@ -211,7 +211,9 @@ data class CandidatePage(
 @Serializable
 data class ReminderInput(
     val triggerAt: String,
-    val channel: String = "NOTIFICATION",
+    // 不给默认值：kotlinx 默认 encodeDefaults=false，带默认值的字段会被省略，
+    // 服务端会把缺失的 channel 当成 null 直接失败（真机确认候选时发现）。
+    val channel: String,
     val message: String? = null
 )
 

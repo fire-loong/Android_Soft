@@ -55,7 +55,7 @@ class CandidateExtractionServiceTest {
     }
 
     @Test
-    void invalidAiOutputIsNotMisreportedAsUnavailableOrReplacedByRules() {
+    void invalidAiOutputDegradesToRulesWithExplicitMarker() {
         AiProperties props = new AiProperties();
         props.setProvider("maas");
         InMemoryCache cache = new InMemoryCache();
@@ -64,10 +64,13 @@ class CandidateExtractionServiceTest {
         CandidateExtractionService service = new CandidateExtractionService(
                 List.of(provider), props, new RuleExtractor(), cache);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> service.extract(request()));
+        CandidateExtraction result = service.extract(request());
 
-        assertEquals(ErrorCode.AI_OUTPUT_INVALID, error.code());
-        assertEquals(0, cache.stores.get());
+        // R20：无效 JSON 必须降级而不是死信丢通知；但结果要显式标注来源是本地规则，不能冒充 AI。
+        assertEquals("RULE", result.derivation());
+        assertTrue(result.warnings().stream().anyMatch(w -> w.startsWith("AI_OUTPUT_INVALID_FALLBACK")));
+        assertTrue(result.warnings().stream().noneMatch(w -> w.startsWith("AI_UNAVAILABLE_FALLBACK")));
+        assertEquals(0, cache.stores.get(), "降级结果不得写入模型缓存");
     }
 
     @Test

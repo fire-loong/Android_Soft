@@ -164,4 +164,37 @@ class InboxChainIntegrationTest extends AbstractIntegrationTest {
         JsonNode undated = taskResp.json.path("data").path("dueAt");
         assertTrue(undated.isMissingNode() || undated.isNull(), "多日期候选不得自动写入截止时间");
     }
+
+    @Test
+    void confirmWithIncompleteReminderIsRejectedAsValidationError() {
+        Map<String, String> owner = register();
+        String token = owner.get("access");
+        String ws = createWorkspace(token, unique("提醒校验"));
+
+        Map<String, Object> share = new LinkedHashMap<>();
+        share.put("workspaceId", ws);
+        share.put("sourceType", "NOTIFICATION");
+        share.put("sourceApp", "com.example.scheduler");
+        share.put("sourceKey", unique("key"));
+        share.put("text", "请于截止时间 11月28日 12:00 前确认会议室");
+        share.put("localOnly", true);
+        Resp shareResp = req("POST", "/api/v1/sources/share", token, share, null);
+        assertEquals(200, shareResp.status, shareResp.raw);
+        String candidateId = shareResp.json.path("data").path("candidateIds").get(0).asText();
+        Resp cand = req("GET", "/api/v1/inbox/candidates/" + candidateId + "?workspaceId=" + ws, token, null, null);
+        int version = cand.json.path("data").path("version").asInt();
+
+        // 客户端漏传 channel（kotlinx 默认省略默认值）曾导致事务内 500；必须在请求层 400 且不建事项。
+        Map<String, Object> confirm = new LinkedHashMap<>();
+        confirm.put("baseVersion", version);
+        confirm.put("steps", List.of("确认会议室"));
+        confirm.put("reminders", List.of(Map.of("triggerAt", "2026-11-28T03:00:00Z")));
+        Resp bad = req("POST", "/api/v1/inbox/candidates/" + candidateId + "/confirm", token, confirm, unique("conf"));
+        assertEquals(400, bad.status, bad.raw);
+
+        Resp after = req("GET", "/api/v1/inbox/candidates/" + candidateId + "?workspaceId=" + ws, token, null, null);
+        assertEquals("PENDING", after.json.path("data").path("status").asText());
+        assertTrue(after.json.path("data").path("confirmedTaskId").isMissingNode()
+                || after.json.path("data").path("confirmedTaskId").isNull(), "校验失败不得创建事项");
+    }
 }

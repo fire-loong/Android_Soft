@@ -1,6 +1,7 @@
 package com.actionloop.api.web.dto;
 
 import com.actionloop.api.domain.TimePrecision;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
@@ -22,7 +23,8 @@ public record InboxConfirmRequest(
         UUID assigneeId,
         Boolean dueDateConfirmed,
         String notes,
-        List<ReminderInput> reminders,
+        // 逐项校验：缺 triggerAt/channel 时在请求层返回 400，而不是在事务内抛错导致 500（真机发现）。
+        List<@Valid ReminderInput> reminders,
         List<String> steps,
         List<String> materials
 ) {

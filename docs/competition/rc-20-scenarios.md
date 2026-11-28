@@ -118,5 +118,13 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 2. **未修（阻断 R16）**：本地目标高亮无 App 内入口——`GuidanceSessionManager.setTarget` 在 `apps/android` 内没有任何调用方，受控测试 App 上「高亮唯一目标→用户点击→重新匹配→低置信降级」只能在 JVM 单测覆盖，真机无法执行。
 3. 观察项：本地候选抽取在 App 内走后端 worker（`SOURCE_AI_EXTRACTION`）；API 单进程运行时通知只会停留在 PENDING 作业，验证链路必须同时运行 worker。
 4. **已修（布局）**：200% 字号下「今天」页空间名超出 TopAppBar 与首卡重叠 → 标题单行省略。
+
+### 3.2 真机追加（2026-11-28，同一台 vivo）
+
+| 步骤 | 操作 | 结果 |
+| --- | --- | --- |
+| 提醒确认（R01/A-06） | 注入含单一日期「截止时间 11月28日 13:00」的通知 → 待确认页勾选提醒 → 确认创建 | **修复前 FAIL**：`ReminderService.replace` 抛「提醒时间与渠道不能为空」，事务回滚并返回 500（客户端把 `channel` 当默认值省略，服务端 Jackson 收到 null）。**修复后 PASS**：事项创建、`reminders` 一条 `SCHEDULED`、`dumpsys alarm` 出现 `com.actionloop.android.REMINDER_*`（未授予精确闹钟，窗口为不精确：15min/1h） |
+| 无效 AI 输出（R20） | 同内容通知重发 | **修复前 FAIL**：MaaS 连续两次 schema 校验失败 → 作业 `DEAD_LETTER / AI_OUTPUT_INVALID`，App 待确认页为空，用户无任何提示（通知被吞）。**修复后**：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK` 警告（JVM 单测 8 项覆盖；真实模型未再复现无效输出，待后续观察） |
+| 重启后提醒重建（A-06） | 重启设备 | **未完成**：重启后无线调试未自动恢复（`adb devices` 为空，mDNS 无记录），需用户在开发者选项重新打开无线调试后才能继续验证 BootReceiver 重建闹钟 |
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。

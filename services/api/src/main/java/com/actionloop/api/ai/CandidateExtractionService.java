@@ -59,13 +59,17 @@ public class CandidateExtractionService {
             cacheService.store(request, extraction);
             return extraction;
         } catch (com.actionloop.shared.error.BusinessException e) {
-            if (e.code() != com.actionloop.shared.error.ErrorCode.AI_UNAVAILABLE) {
+            boolean unavailable = e.code() == com.actionloop.shared.error.ErrorCode.AI_UNAVAILABLE;
+            // 无效 Schema 与不可用都属 R20 的降级场景：显式转本地规则，避免作业死信导致用户丢失通知。
+            if (!unavailable && e.code() != com.actionloop.shared.error.ErrorCode.AI_OUTPUT_INVALID) {
                 throw e;
             }
-            log.warn("AI extraction unavailable; using explicit rule fallback");
+            log.warn("AI extraction degraded to rules: code={}", e.code());
             CandidateExtraction rule = ruleExtractor.extract(request);
             List<String> warnings = new ArrayList<>(rule.warnings());
-            warnings.add("AI_UNAVAILABLE_FALLBACK: 真实模型暂不可用，本次使用本地规则");
+            warnings.add(unavailable
+                    ? "AI_UNAVAILABLE_FALLBACK: 真实模型暂不可用，本次使用本地规则"
+                    : "AI_OUTPUT_INVALID_FALLBACK: 模型输出不符合 Schema，本次使用本地规则");
             return new CandidateExtraction(rule.candidates(), rule.modelVersion(), rule.promptVersion(),
                     rule.schemaVersion(), "RULE", warnings);
         }
