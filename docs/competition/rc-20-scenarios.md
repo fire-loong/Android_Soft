@@ -125,6 +125,16 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | --- | --- | --- |
 | 提醒确认（R01/A-06） | 注入含单一日期「截止时间 11月28日 13:00」的通知 → 待确认页勾选提醒 → 确认创建 | **修复前 FAIL**：`ReminderService.replace` 抛「提醒时间与渠道不能为空」，事务回滚并返回 500（客户端把 `channel` 当默认值省略，服务端 Jackson 收到 null）。**修复后 PASS**：事项创建、`reminders` 一条 `SCHEDULED`、`dumpsys alarm` 出现 `com.actionloop.android.REMINDER_*`（未授予精确闹钟，窗口为不精确：15min/1h） |
 | 无效 AI 输出（R20） | 同内容通知重发 | **修复前 FAIL**：MaaS 连续两次 schema 校验失败 → 作业 `DEAD_LETTER / AI_OUTPUT_INVALID`，App 待确认页为空，用户无任何提示（通知被吞）。**修复后**：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK` 警告（JVM 单测 8 项覆盖；真实模型未再复现无效输出，待后续观察） |
-| 重启后提醒重建（A-06） | 重启设备 | **未完成**：重启后无线调试未自动恢复（`adb devices` 为空，mDNS 无记录），需用户在开发者选项重新打开无线调试后才能继续验证 BootReceiver 重建闹钟 |
+| 重启后提醒重建（A-06） | 重启设备 | **FAIL（环境+待复测）**：重启后 `pidof` 无 App 进程、`dumpsys alarm` 中 0 条 `REMINDER_*`，说明 `BOOT_COMPLETED` 未送达 `BootReceiver`（vivo 自启动限制）。代码侧 `Session` 在 `Application.onCreate` 初始化、本地 Room 有缓存，逻辑可用，但必须先开 vivo「自启动」再复测。adb shell 无法代发开机广播（`SecurityException: not allowed to send broadcast android.intent.action.BOOT_COMPLETED`） |
+
+### 3.3 分屏与桌面敏感词（2026-11-28，同一台 vivo）
+
+| 步骤 | 操作 | 结果 |
+| --- | --- | --- |
+| 分屏（E-03） | 会话进行中进入最近任务 → 长按卡片 → 分屏 → 选第二个应用 | 分屏成功，ActionLoop 上半屏正常显示；**未触发 `DISPLAY_CHANGED`**（物理显示未变，只有窗口变化） |
+| 悬浮条可见性（E-05） | 分屏后观察 | **FAIL（P1 可用性）**：悬浮控制条窗口仍存在（`type=2038`，frame 在上半屏），但界面上不可见，用户无法点「停止」 |
+| 替代停止路径（E-05） | 通知栏展开「ActionLoop 引导进行中」→「停止引导」 | 通过：`ScreenCaptureService` 退出、共享标识消失。注：直接点通知正文（“点此停止”）不会停止，必须展开后点「停止引导」动作 |
+| 外部停止尝试 | `am startservice -a …STOP_CAPTURE` | 通过（符合设计）：服务未导出，外部 uid 被拒绝，无法绕过 App 内授权路径 |
+| 桌面敏感词（E-04 边界） | 回到桌面（含“支付宝”图标） | 观察项：审计 `SENSITIVE_PAGE|com.bbk.launcher2: 命中敏感关键词: 支付`，会话被暂停。偏保守（桌面含支付类 App 名就停），安全方向正确但可能误伤，需评估是否排除 launcher |
 >
 > 增量说明（不入正式 RC 记录）：`dc7ee9c`（导出异步+二次认证）之后只复跑了受影响门禁——后端 156 项、Web 32 项 + `tsc`、`pnpm test:contract`（68 路径）、Web E2E 4 条；k6、joint、供应链扫描、备份/杀进程演练未复跑，因此不构成一次新的完整 RC。

@@ -14,7 +14,7 @@
 | A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest`；真机：含两日期的通知候选 `due_date` 留空、写入 `uncertainties_json`、`needs_user_confirmation=true`（2026-11-26） | 部分（无真实通知样本集评测） |
 | A-04 | 无任务文本 | `RuleExtractor`、`SensitiveContentDetector` | `RuleExtractorTest`（含闲聊回归） | 已验证（规则层） |
 | A-05 | 权限撤销 | Android 通知监听/发送权限流 | 真机：未勾选白名单时仅记包名、勾选后才上传；撤销只读无障碍后引导会话暂停（`PAUSE reason=a11y_revoked`，2026-11-26） | 部分（通知监听权限被系统撤销后的停止行为未验证） |
-| A-06 | 重启和时区 | Android 提醒调度 | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复且无离线标记 | 部分（提醒闹钟重建、省电策略、时区切换未验证；需多厂商设备） |
+| A-06 | 重启和时区 | Android 提醒调度、`BootReceiver` | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复；2026-11-28：重启后 0 条 `REMINDER_*` 闹钟，开机广播未送达（vivo 自启动限制，待开权限复测） | 部分（提醒重建未通过、时区切换未验证；需多厂商设备） |
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
@@ -33,13 +33,13 @@
 | D-05 | 离线幂等 | `IdempotencyFilter` / `sync_operation` | `IdempotencyIntegrationTest`、`tests/joint/cross-client-consistency.mjs`（同 key 重放不重复建） | 部分（进程被杀/断网恢复未注入） |
 | E-01 | 正确高亮 | `TargetMatcher` + 受控测试 App | `TargetMatcherTest`、`GuidanceTestAppContractTest` | 部分（**本地目标高亮无 App 内入口**：`GuidanceSessionManager.setTarget` 无调用方，真机无法执行高亮/重匹配；2026-11-26 实测） |
 | E-02 | 低置信 | 低置信转文字/人工 | `GuidanceSessionManagerTest`、`apps/web/tests/e2e` 低置信日期门 | 部分 |
-| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26） | 部分（分屏与软键盘变化未真机验证） |
-| E-04 | 敏感页面 | `SensitivePageDetector`（密码/FLAG_SECURE/支付/验证码） | `SensitivePageDetectorTest`；真机：受控测试 App 密码弹窗即时暂停并写 `SENSITIVE_PAGE`、锁屏触发停止（2026-11-26） | 部分（支付页与独立 FLAG_SECURE 测试页未验证） |
-| E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest`；真机：悬浮条停止、锁屏停止、撤无障碍暂停均已验证（2026-11-26） | 部分（超时未验证） |
+| E-03 | 窗口变化 | `NormalizedBounds` 坐标归一 | `NormalizedBoundsTest`；真机：旋转触发 `DISPLAY_CHANGED` 并暂停（2026-11-26）；分屏可正常进入、不触发 `DISPLAY_CHANGED`（2026-11-28） | 部分（分屏下悬浮控制条不可见，需走通知栏停止；软键盘变化未验证） |
+| E-04 | 敏感页面 | `SensitivePageDetector`（密码/FLAG_SECURE/支付/验证码） | `SensitivePageDetectorTest`；真机：密码弹窗即时暂停并写 `SENSITIVE_PAGE`、锁屏停止（2026-11-26）；桌面命中“支付”关键词也暂停（2026-11-28，疑似误伤 launcher） | 部分（支付页与独立 FLAG_SECURE 测试页未验证） |
+| E-05 | 停止 | 悬浮条/通知/撤权/锁屏/超时 | `GuidanceSessionStateTest`；真机：悬浮条停止、锁屏停止、撤无障碍暂停（2026-11-26）、通知栏「停止引导」动作（2026-11-28 分屏下验证） | 部分（分屏下悬浮条不可见；超时未验证） |
 | E-06 | 伪造控制 | 拒绝 CLICK/SWIPE/INPUT/COMMIT_PAYMENT | `AssistMessageGuardTest`、`AssistSignalCoreTest`、`AssistScopesContractTest` | 已验证（自动化） |
 | E-07 | 弱网 | WebRTC 自适应、标注过期 | 无 | 未验证（需弱网注入） |
 | E-08 | 媒体不留存 | `AssistMediaPolicy`（帧不落盘） | `AssistMediaPolicyTest` | 部分（会话后存储/相册检查未执行） |
-| X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest` | 部分（真实 MaaS 故障未注入） |
+| X-01 | 云 AI 故障 | 超时/无效 JSON/配额降级 | `AiResultCacheServiceTest`、`QwenAiProviderTest`、`AiOutputSchemaContractTest`、`CandidateExtractionServiceTest`；真机：真实 MaaS 两次 schema 失败曾致作业死信、通知被吞（2026-11-28 实测，已修：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK`） | 部分（配额/超时故障未注入） |
 | X-02 | TURN 故障 | TURN 凭证与失败提示 | 无 | 未验证（需 Coturn 环境） |
 | X-03 | 数据库恢复 | `tests/ops/backup-restore-drill.mjs`（pg_dump -Fc → 空库 pg_restore → 逐表行数 + 整表 md5） | 本机演练 PASS：36 张表 / 2946 行 / 非空表 md5 一致 | 部分（同实例新库；干净机器与异地介质未验证） |
 | X-04 | 大字体/读屏 | 200% 字号、TalkBack、键盘 | Android 布局修复 + JVM 单测；真机 200%：今天页标题溢出已修为单行省略、权限页按钮换行正常（2026-11-26） | 部分（无 TalkBack 实测） |
