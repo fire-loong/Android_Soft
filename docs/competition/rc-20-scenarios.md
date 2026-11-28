@@ -125,7 +125,7 @@ cd C:\ActionLoopBuild\apps\android && ./gradlew test   # Android JVM 96 项（�
 | --- | --- | --- |
 | 提醒确认（R01/A-06） | 注入含单一日期「截止时间 11月28日 13:00」的通知 → 待确认页勾选提醒 → 确认创建 | **修复前 FAIL**：`ReminderService.replace` 抛「提醒时间与渠道不能为空」，事务回滚并返回 500（客户端把 `channel` 当默认值省略，服务端 Jackson 收到 null）。**修复后 PASS**：事项创建、`reminders` 一条 `SCHEDULED`、`dumpsys alarm` 出现 `com.actionloop.android.REMINDER_*`（未授予精确闹钟，窗口为不精确：15min/1h） |
 | 无效 AI 输出（R20） | 同内容通知重发 | **修复前 FAIL**：MaaS 连续两次 schema 校验失败 → 作业 `DEAD_LETTER / AI_OUTPUT_INVALID`，App 待确认页为空，用户无任何提示（通知被吞）。**修复后**：降级本地规则并写 `AI_OUTPUT_INVALID_FALLBACK` 警告（JVM 单测 8 项覆盖；真实模型未再复现无效输出，待后续观察） |
-| 重启后提醒重建（A-06） | 重启设备 | **FAIL（环境+待复测）**：重启后 `pidof` 无 App 进程、`dumpsys alarm` 中 0 条 `REMINDER_*`，说明 `BOOT_COMPLETED` 未送达 `BootReceiver`（vivo 自启动限制）。代码侧 `Session` 在 `Application.onCreate` 初始化、本地 Room 有缓存，逻辑可用，但必须先开 vivo「自启动」再复测。adb shell 无法代发开机广播（`SecurityException: not allowed to send broadcast android.intent.action.BOOT_COMPLETED`） |
+| 重启后提醒重建（A-06） | 重启设备 | **首测 FAIL**：`pidof` 无 App 进程、0 条 `REMINDER_*` 闹钟，`BOOT_COMPLETED` 被 vivo 自启动限制拦截（adb shell 不能代发开机广播）。**开启「自启动」后复测 PASS**：重启后 App 进程由开机广播拉起（pid 8804），`dumpsys alarm` 重新出现两条 `REMINDER_*`（`when`=11:00/13:00，仍为不精确窗口），打开 App 仍登录、今天页事项与状态完整。**结论：重建逻辑正确，但依赖 OEM 自启动权限，需在权限页/文档中提示用户开启** |
 
 ### 3.3 分屏与桌面敏感词（2026-11-28，同一台 vivo）
 

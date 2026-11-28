@@ -14,7 +14,7 @@
 | A-03 | 多日期 | `RuleExtractor` / `CandidateExtractionService` | `RuleExtractorTest`、`CandidateExtractionServiceTest`；真机：含两日期的通知候选 `due_date` 留空、写入 `uncertainties_json`、`needs_user_confirmation=true`（2026-11-26） | 部分（无真实通知样本集评测） |
 | A-04 | 无任务文本 | `RuleExtractor`、`SensitiveContentDetector` | `RuleExtractorTest`（含闲聊回归） | 已验证（规则层） |
 | A-05 | 权限撤销 | Android 通知监听/发送权限流 | 真机：未勾选白名单时仅记包名、勾选后才上传；撤销只读无障碍后引导会话暂停（`PAUSE reason=a11y_revoked`，2026-11-26） | 部分（通知监听权限被系统撤销后的停止行为未验证） |
-| A-06 | 重启和时区 | Android 提醒调度、`BootReceiver` | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复；2026-11-28：重启后 0 条 `REMINDER_*` 闹钟，开机广播未送达（vivo 自启动限制，待开权限复测） | 部分（提醒重建未通过、时区切换未验证；需多厂商设备） |
+| A-06 | 重启和时区 | Android 提醒调度、`BootReceiver` | 真机 2026-11-26：重启后仍登录、事项与状态从缓存恢复；2026-11-28：未开自启动时开机广播被 vivo 拦截、0 条闹钟；**开「自启动」后重启，BootReceiver 重建两条 `REMINDER_*` 闹钟且登录态/事项完整** | 部分（提醒重建依赖 OEM 自启动权限，需在产品内提示；时区切换未验证；需多厂商设备） |
 | B-01 | 长截图 | `OcrSegmentPlanner` / `OcrTextMerger` | `LongScreenshotOcrTest`、`OcrSegmentPlannerTest`、`OcrTextMergerTest` | 已验证（OCR 层） |
 | B-02 | 扫描 PDF | `OcrIntegrationTest` 链路 | `OcrIntegrationTest` | 部分（无文本层 PDF 真实样本未跑） |
 | B-03 | 文件去重 | `UploadIntegrationTest` 去重逻辑 | `UploadIntegrationTest` | 部分（跨端同名/异名同内容未联测） |
